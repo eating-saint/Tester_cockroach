@@ -1,0 +1,7 @@
+{
+  "fixture": "F5",
+  "buttons": [
+    {"name": "同源按钮", "dom_id": "btn-same", "iframe_id": "same", "cross_origin": false, "result": "clicked:same"},
+    {"name": "跨源按钮", "dom_id": "btn-cross", "iframe_id": "cross", "cross_origin": true, "result": "clicked:cross"}
+  ]
+}

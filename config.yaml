@@ -1,0 +1,22 @@
+# ver0 全局配置；不写的项使用默认值
+chrome_path: ""            # 留空 = 自动查找
+profile_dir: profiles/ver0
+headless: true
+window: [1280, 800]
+quiet_ms: 500              # 网络安静需保持的毫秒数
+nav_timeout_s: 30
+cmd_timeout_s: 30
+watchdog_interval_s: 0.5
+max_crash_reruns: 2
+min_interval_s:
+  bing.com: 20
+captcha_markers:
+  - captcha
+  - challenge
+  - recaptcha
+  - hcaptcha
+  - turnstile
+  - verify you are human
+  - 验证您是人类
+  - 人机验证
+runs_dir: runs

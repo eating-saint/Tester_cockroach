@@ -1,0 +1,10 @@
+﻿name: extra_captcha
+start_url: ${BASE}/extra/gate.html
+root_goal: 验证人工介入流程（假验证码页）
+limits: {max_depth: 1, max_steps: 3}
+timeout_s: 120
+rules:
+  - when: {}
+    do: {tool: complete, arguments: {summary: 人工介入后继续执行}}
+expect:
+  root_status: done

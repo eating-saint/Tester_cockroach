@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F4 慢请求</title></head>
+<body style="font:14px sans-serif">
+  <h1>慢请求</h1>
+  <div id="out">等待中……</div>
+  <script>
+    fetch("/api/delay?ms=8000&data=slow").then(r => r.json()).then(j => {
+      document.getElementById("out").textContent = "完成：" + j.data;
+    });
+  </script>
+</body></html>

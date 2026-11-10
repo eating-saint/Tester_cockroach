@@ -1,0 +1,6 @@
+{
+  "fixture": "F11",
+  "same_url_contains": "/f11_nav/page2.html",
+  "blank_url_contains": "page2.html?tab=new",
+  "origin_url_contains": "/f11_nav/index.html"
+}

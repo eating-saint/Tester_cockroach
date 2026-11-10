@@ -1,0 +1,19 @@
+﻿<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>请完成人机验证</title></head>
+<body style="margin:0;padding:40px;font:14px sans-serif">
+  <div id="gate">
+    <h1>请完成人机验证</h1>
+    <p>为了继续访问，请证明你不是机器人。（假验证码页，仅用于测试人工介入流程）</p>
+    <p><a href="gate.html?solve=1">我已完成验证</a></p>
+    <iframe name="recaptcha" title="recaptcha" src="about:blank" style="width:300px;height:80px"></iframe>
+  </div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    if (q.has("reset")) document.cookie = "captcha_ok=; max-age=0; path=/";
+    if (q.has("solve")) document.cookie = "captcha_ok=1; max-age=3600; path=/";
+    if (document.cookie.includes("captcha_ok=1")) {
+      document.title = "已通过";
+      document.getElementById("gate").innerHTML = "<h1>欢迎</h1><p>验证已通过，可以继续。</p>";
+    }
+  </script>
+</body></html>

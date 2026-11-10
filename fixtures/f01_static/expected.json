@@ -1,0 +1,5 @@
+{
+  "fixture": "F1",
+  "counts": {"button": 5, "textbox": 3, "link": 8},
+  "ids": ["b1", "b2", "b3", "b4", "b5", "i1", "i2", "i3", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8"]
+}

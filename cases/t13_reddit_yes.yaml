@@ -1,0 +1,24 @@
+name: t13_reddit_yes
+start_url: ${BASE}/f10_search/with_reddit.html
+root_goal: 若搜索结果出现 reddit 链接则点进去读取全部评论预览
+root_done_when: 子任务完成或确认未出现 reddit 链接
+limits: {max_depth: 3, max_steps: 10}
+timeout_s: 120
+rules:
+  - when: {node_depth: 0, element: {role: link, href_contains: "reddit.com"}, no_child_with_goal: 读取评论}
+    do: {tool: create_child, arguments: {goal: 读取评论, done_when: 读到全部评论预览}}
+  - when: {goal_is: 读取评论, url_not_contains: "/f10_search/reddit.html", element: {role: link, href_contains: "reddit.com"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {goal_is: 读取评论, url_contains: "/f10_search/reddit.html", read_count: 0}
+    do: {tool: read_text, arguments: {contains: KW}}
+  - when: {goal_is: 读取评论, read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+  - when: {node_depth: 0, has_child_summary: true}
+    do: {tool: complete, arguments: {summary: 子任务完成：已读取评论}}
+  - when: {node_depth: 0, no_element: {role: link, href_contains: "reddit.com"}}
+    do: {tool: complete, arguments: {summary: 未出现 reddit 链接}}
+expect:
+  root_status: done
+  summary_contains: [KW1, KW2, KW3, KW4, KW5]
+  final_url_contains: reddit
+  tree_shape: [root, root/读取评论]

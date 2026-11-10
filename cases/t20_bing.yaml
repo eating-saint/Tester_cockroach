@@ -1,0 +1,22 @@
+name: t20_bing
+start_url: https://www.bing.com/
+root_goal: 在 Bing 搜索一个词并提取结果标题和链接
+inputs: {query: python asyncio tutorial}
+limits: {max_depth: 2, max_steps: 8}
+timeout_s: 180
+rules:
+  - when: {steps_used: 0, element: {role: [searchbox, combobox, textbox], enabled: true}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.query}}"}}
+  - when: {last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  - when: {url_contains: "search?", read_count: 0}
+    # Bing 的结果链接都是 bing.com/ck/a 跳转；title_min_len 过滤掉"图片""视频"等导航项
+    do: {tool: read_links, arguments: {href_contains: "/ck/a", title_min_len: 8}}
+  - when: {read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则}}}
+expect:
+  root_status: done
+  final_url_contains: search
+  summary_contains: [/ck/a]
+  summary_count_min: {/ck/a: 5}   # 至少 5 条结果链接，防止只读到页脚链接也判通过

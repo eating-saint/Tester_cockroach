@@ -1,0 +1,18 @@
+name: t16_report
+start_url: ${BASE}/f07_form/index.html
+root_goal: 在表单输入菜名并提交，读取结果
+inputs: {dish: 宫保鸡丁}
+limits: {max_depth: 2, max_steps: 10}
+timeout_s: 120
+rules:
+  - when: {steps_used: 0, element: {role: textbox, name_contains: 菜名}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.dish}}"}}
+  - when: {last_tool: type, element: {role: button, name_contains: 提交}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {last_tool: click}
+    do: {tool: read_text, arguments: {contains: 你输入了}}
+  - when: {read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+expect:
+  root_status: done
+  summary_contains: [你输入了：宫保鸡丁]

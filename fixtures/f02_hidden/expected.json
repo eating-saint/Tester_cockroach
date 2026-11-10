@@ -1,0 +1,16 @@
+{
+  "fixture": "F2",
+  "note": "display:none 的元素不出现在列表中或 visible=false 都算正确",
+  "elements": {
+    "n1": {"visible": true, "enabled": true},
+    "n2": {"visible": true, "enabled": true},
+    "dn1": {"visible": false, "enabled": true},
+    "dn2": {"visible": false, "enabled": true},
+    "vh1": {"visible": false, "enabled": true},
+    "vh2": {"visible": false, "enabled": true},
+    "ds1": {"visible": true, "enabled": false},
+    "ds2": {"visible": true, "enabled": false},
+    "off1": {"visible": false, "enabled": true},
+    "off2": {"visible": false, "enabled": true}
+  }
+}

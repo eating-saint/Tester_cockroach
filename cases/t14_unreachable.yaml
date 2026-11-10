@@ -1,0 +1,10 @@
+name: t14_unreachable
+start_url: ${BASE}/f01_static/index.html
+root_goal: 找到一个不存在的按钮（永远达不成）
+limits: {max_depth: 2, max_steps: 5}
+timeout_s: 60
+rules:
+  - when: {no_element: {role: button, name_contains: 不存在的按钮}}
+    do: {tool: scroll, arguments: {direction: down, pixels: 100}}
+expect:
+  root_status: failed

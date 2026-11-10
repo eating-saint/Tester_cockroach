@@ -1,0 +1,204 @@
+﻿LLM 驱动的多端自动化测试系统 —— 技术方案细则 v1
+更新日期：2026-10-28
+存放位置：D:\work\Bing_browse
+
+说明：本文件记录已确认的技术决策、已核实的技术事实、待办事项。
+标注含义：[已定] 已拍板；[已核实] 已查官方/可靠来源；[经验] 未查到原文、需本机实测；[待定] 还没决定。
+不在本文件范围内：网络身份相关（指纹、IP）全部不考虑；用户行为画像（犹豫型、快速型等）暂不考虑。
+
+
+======================================================================
+一、项目定位
+======================================================================
+[已定] 目标：朋友餐厅的网上点单网站（已授权）的自动化测试；以后扩展到 iOS、Android、Windows 原生 App。
+[已定] 核心能力：本地视觉大模型实时看界面、做决策，确定性脚本负责执行，最后产出测试结果。
+[已定] Edge/Bing 搜索不再是最终目的，只作为验证"视觉模型能否识别条件并正确执行"的测试用例。
+[已定] 原来的奖励收集方向已取消。
+
+
+======================================================================
+二、总体架构
+======================================================================
+[已定] 闭环：感知 → 统一状态 → LLM 决策 → 调用工具 → 执行 → 新状态 → 再交给 LLM
+[已定] LLM 只负责决策：每次只做一个决策，输出固定格式的 JSON，只能调用已注册的函数。
+       输出示例：{"decision":"call_tool","reason":"...","tool":"click","arguments":{...}}
+[已定] 底层全部是自己写的确定性函数（浏览器、输入、截图、等待等）。
+[已定] 分层（自上而下）：
+       人工通道（企业微信）
+       LLM 决策层
+       控制层（状态机 / 调度 / 设备管理 / 事件总线）
+       感知层（结构树 + 视觉 + 网络/JS 状态）
+       执行层（各平台驱动）
+       环境（浏览器 / 操作系统 / App）
+
+
+======================================================================
+三、决策层（本地视觉模型）
+======================================================================
+[已定] 本地部署，必须是多模态（能看图），因为决策靠视觉。
+[已定] 延迟不设上限：本质是测试，慢一点不影响。
+[已定] 显卡：RTX 5060 笔记本版。
+[已核实] RTX 5060 Laptop：8GB GDDR7，128-bit，TGP 45–100W。
+         来源：https://www.notebookcheck.net/GeForce-RTX-5060-laptops-GPU-unveiled-with-8-GB-GDDR7-VRAM-and-100-Watts-max-power.999887.0.html
+[已核实] Ollama 上的 qwen3-vl：2b 约 1.9GB / 4b 约 3.3GB / 8b 约 6.1GB；最低需要 Ollama 0.12.7。
+         来源：https://registry.ollama.ai/library/qwen3-vl
+         → 建议首选 qwen3-vl:8b，显存不够（截图大、上下文长）时退到 4b。
+[已核实] Ollama 的 OpenAI 兼容接口支持 base64 图片输入，不支持图片 URL；
+         支持 response_format / JSON mode，json_schema 文档没写，需要实测。
+         来源：https://docs.ollama.com/api/openai
+         → 决策输出用 JSON mode，代码里再做格式校验，不合格就重试。
+[已定] 视觉模型可以直接输出坐标（决策 2）。
+[已核实] 坐标格式因模型而异，必须做成可配置项：
+         - Qwen3-VL：0–1000 归一化坐标，不是像素。换算：像素 = 值 / 1000 × 送入图片的宽或高。
+           来源：https://deepwiki.com/QwenLM/Qwen3-VL/5.2-spatial-understanding-and-2d-grounding
+         - Qwen2.5-VL：绝对像素坐标，但基于模型内部缩放后的图片尺寸（按 14px patch 网格），
+           不一定是原始截图尺寸。
+           来源：https://learnopencv.com/object-detection-with-vlms-ft-qwen2-5-vl/
+         → 统一做法：截图先按固定尺寸缩放后再送给模型，记录缩放比例，模型坐标先换算回截图像素，再换算成 CSS 像素。
+
+
+======================================================================
+四、感知层
+======================================================================
+[已定] 分工：视觉负责决策，结构树负责执行，两者共存。
+       流程：模型看截图，输出意图和坐标 → 脚本把坐标"吸附"到包含该点或离它最近的结构树元素框
+            → 吸附成功就用元素框，失败就直接用模型坐标。
+[已定] "DOM"统一抽象成"结构树"，按平台实现：
+       - 网页：DOM + Accessibility Tree（CDP）
+       - Android：uiautomator 控件层级
+       - iOS：XCUITest 元素树
+       - Windows：UI Automation 树
+[已核实] CDP Accessibility.getFullAXTree 存在，但属于实验性接口（experimental），Chrome 升级后可能变化，
+         需要做好兼容。来源：CDP 协议定义 browser_protocol.json（ChromeDevTools/devtools-protocol 仓库）
+[已定] JS/网络状态：订阅 CDP 事件，不往页面注入代码。
+       - Network.requestWillBeSent / loadingFinished / loadingFailed → 统计等待中和失败的请求
+       - Log.entryAdded / Runtime.consoleAPICalled → 收集 console 报错
+       - Page.lifecycleEvent → 判断页面加载阶段
+[已定] 截图：CDP Page.captureScreenshot。
+[已核实] Page.captureScreenshot 是稳定接口，支持 clip、captureBeyondViewport 等参数。
+[已定] OCR：PaddleOCR，作为辅助（视觉模型自己能读字，OCR 用来核对或提取大段文字）。
+[已定] 坐标统一：全系统只用一套坐标（CSS 像素），在驱动层换算 devicePixelRatio 和页面缩放。
+[已定] 统一状态 PageState：url / title / 结构树摘要 / JS 状态 / 网络状态 / 截图引用 / 当前任务步骤。
+
+
+======================================================================
+五、执行层（驱动）
+======================================================================
+[已定] 驱动接口第一版就定死，各平台分别实现，大脑和状态机都不用改：
+       get_tree() / screenshot() / click(x,y) / type(text) / scroll() / wait() / back() / open(url)
+[已定] 第一版只实现"任意 Chrome 环境"：原生 CDP，Python。
+[已核实] Edge 也是 Chromium 内核，同一套 CDP 驱动可以用。
+[已核实] Chrome 136 起，--remote-debugging-port / --remote-debugging-pipe 用在默认用户目录上会被忽略，
+         必须另外指定一个非默认的 --user-data-dir。Chrome for Testing 保持旧行为。
+         来源：https://developer.chrome.com/blog/remote-debugging-port
+         → 启动方式：chrome.exe --remote-debugging-port=9222 --user-data-dir=D:\work\Bing_browse\profiles\test01
+[已定] 多个测试账号：每个账号开一个独立的 Target.createBrowserContext，cookie 和存储互相隔离（正常的测试隔离）。
+[已核实] Target.createBrowserContext 存在（稳定接口）。
+[已定] 键鼠输入：CDP Input.dispatchMouseEvent / dispatchKeyEvent。
+[已核实] Input.dispatchMouseEvent、Input.dispatchTouchEvent 都是稳定接口。
+[经验] CDP 输入事件发给页面，一般不会移动系统光标，需要在你的电脑上实测确认。
+[已定] 鼠标轨迹模块（只做执行层，不做行为画像）：8 个方向 × 5 套模板随机选一套，中途有轻微偏移，
+       终点前先过冲再拉回，落点在目标框内随机。
+[已定] 移动端没有鼠标悬停轨迹，改用点击和滑动的手势模块，接口和轨迹模块保持一致。
+
+[已定] 鼠标可视化选方案 B（决策 3）：
+       - 所有环境都发 CDP 输入事件；
+       - 用 CDP Overlay 在页面上实时高亮光标位置或目标框，不往页面注入代码；
+       - 每一步保存轨迹点，事后在截图上画出轨迹，做成回放，并放进测试报告。
+[已核实] Overlay.highlightRect 存在，参数为 x / y / width / height / color / outlineColor；
+         整个 Overlay 域是实验性接口，依赖 DOM / Page / Runtime 域先启用。
+         来源：CDP 协议定义 browser_protocol.json
+
+
+======================================================================
+六、以后的原生端（第一版不做，只留接口）
+======================================================================
+[已核实] Android：Appium UiAutomator2 / ADB。
+[已核实] iOS：Appium XCUITest，必须有一台 Mac + Xcode + 命令行工具；
+         真机还需要 libimobiledevice、在设备上装 WebDriverAgent、Apple 开发者账号签名（免费账号经常不行）。
+         来源：https://appium.readthedocs.io/en/latest/en/drivers/ios-xcuitest-real-devices/
+[已核实] Windows 原生：
+         - 官方 appium-windows-driver 只是 WinAppDriver 的薄封装，而 WinAppDriver 微软已多年不维护；
+           5.0.0 以后只支持 Appium 3，需要开启开发者模式。
+           来源：https://github.com/appium/appium-windows-driver
+         - 推荐用 NovaWindows Driver：不依赖 WinAppDriver，后端是 PowerShell，支持 UWP / WinForms / WPF / Win32，
+           需要 Appium 2 或 3；不是完全的直接替换，脚本要调整。
+           来源：https://github.com/AutomateThePlanet/appium-novawindows-driver
+         - 也可以用 pywinauto（UIA 后端）直接写 Python 驱动。[待定]
+
+
+======================================================================
+七、控制层
+======================================================================
+[已定] 状态机：自己写 Python 状态机。
+       基本流程：START → CHECK → ANALYZE → EXECUTE → VERIFY → NEXT / FINISH
+       异常转移由 LLM 决定：retry / wait / reload / pause / human
+       生命周期：RUNNING / PAUSED / WAITING / SUSPENDED / HUMAN_REQUIRED / RESUMED
+[已定] 规则：碰到验证码或人机验证 → 进入 HUMAN_REQUIRED，暂停并通知人工，不自动破解。
+[已定] 上下文管理：母事件 / 子事件分层，像调用栈。
+       - 母事件：例如"一组搜索词的测试"；子事件：例如"一个词 + 它的条件"
+       - 子事件完成后删掉它的上下文，回到母事件
+       - 上下文满了，删除同层已完成的事件
+       [待定] 子事件完成时，要不要回传一行结论给母事件
+[已定] Scheduler 决定什么时候跑，Timing Service 负责等待时长和重试间隔，LLM 只决定"要等"。
+[已定] 多设备：中心 LLM + Master Controller，每台设备上跑一个 Agent，定期发心跳，设备统一抽象。
+[待定] Agent 和 Master 之间的通信协议（gRPC / WebSocket / HTTP）、心跳频率、VM 怎么创建。
+[已定] Docker 后期再说。
+
+
+======================================================================
+八、存储
+======================================================================
+[已定] PostgreSQL 自己部署：devices / tasks / task_runs / events / errors / test_results
+[已定] Redis 自己部署：实时设备状态 / 锁 / 任务队列 / 心跳
+[说明] 第一版可以先用本地 JSON 或 SQLite 跑通，接口按 PG/Redis 设计。
+
+
+======================================================================
+九、人工通道
+======================================================================
+[已定] 企业微信自建应用：查状态 / 截图 / 日志 / 暂停 / 恢复 / 重启，指令都要先经过 LLM 和工具调用。
+[已定] 公网回调用 frp 内网穿透（决策 4）。
+[待定] 回调鉴权（企业微信消息加解密 + 只允许指定成员发指令）。
+
+
+======================================================================
+十、测试结果输出（VERIFY 产出）
+======================================================================
+[已定] 每条用例输出：通过或失败、失败原因、每一步截图、轨迹回放、每一步耗时、模型的原始决策 JSON。
+[建议] 汇总成一份 HTML 或 JSON 报告，方便对比不同模型和不同版本。
+
+
+======================================================================
+十一、第一阶段测试计划（浏览器）
+======================================================================
+[已定] 搜索栏输入一组词，每个词配一些条件，检验视觉模型能否识别条件并正确执行。
+       例：搜索某个词 → 如果结果里出现 reddit → 点进去 → 汇总所有评论预览文本说了什么。
+[建议] 用例写成 YAML，每条包含：
+       query：搜索词
+       conditions：自然语言条件，例如"出现 reddit 链接"
+       actions：满足条件后做什么，例如"点进去，汇总评论预览"
+       expect：判定通过的标准，例如"输出非空摘要，并且 URL 包含 reddit.com"
+       timeout：超时时间
+[建议] 搜索频率控制得低一些，免得被限流打断测试；遇到验证码按第七节规则交给人工。
+[建议] 正式测试对象切换为朋友的点单网站后，用例换成下单流程（选菜 → 加购 → 结算页校验）。
+
+
+======================================================================
+十二、本机待确认（我这边无法在你电脑上执行命令，需要你确认）
+======================================================================
+1. Chrome 或 Edge 的版本号（chrome://version）
+2. Python 版本（建议 3.11+）
+3. 显卡驱动版本，以及 Ollama 是否 ≥ 0.12.7
+4. qwen3-vl:8b 实际加载后的显存占用，以及单步决策耗时
+5. CDP 输入事件会不会移动系统光标（实测）
+
+
+======================================================================
+十三、汇总：所有待定项
+======================================================================
+- 子事件完成后，要不要回传一行结论
+- json_schema 结构化输出在 Ollama 上能不能用（实测）
+- Windows 原生驱动选 NovaWindows 还是 pywinauto
+- Agent 和 Master 之间的通信协议、心跳频率、VM 怎么创建
+- 企业微信回调的鉴权方式

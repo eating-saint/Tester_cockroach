@@ -1,0 +1,1 @@
+{"fixture": "F4", "timeout_s": 5, "slow_url_contains": "/api/delay?ms=8000"}

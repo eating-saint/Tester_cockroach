@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F5 iframe</title>
+<style>
+  body { margin: 0; padding-top: 100px; font: 14px sans-serif; }
+  iframe { width: 300px; height: 120px; border: 5px solid #888; padding: 7px; margin-left: 30px; display: block; margin-bottom: 20px; }
+</style></head>
+<body>
+  <div id="result" style="position:absolute;top:10px;left:10px">none</div>
+  <iframe id="same" src="same.html"></iframe>
+  <iframe id="cross"></iframe>
+  <script>
+    document.getElementById("cross").src = "http://localhost:" + location.port + "/f05_iframe/cross.html";
+    window.addEventListener("message", e => {
+      if (typeof e.data === "string" && e.data.startsWith("clicked:")) document.getElementById("result").textContent = e.data;
+    });
+  </script>
+</body></html>
