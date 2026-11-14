@@ -15,5 +15,6 @@ python -m hands run cases/t20_bing.yaml --headed   # Bing 冒烟，有界面
 
 ## 文档
 
-- `docs/ver0/spec.md` → `plan.md` → `task.md` → `checklist.md` → `acceptance.md`
+- `docs/ver0/spec.md` → `plan.md` → `task.md` → `checklist.md` → `acceptance.md`：手脚层
+- `docs/panel/spec.md` → `plan.md` → `task.md` → `checklist.md` → `acceptance.md`：控制面板（`python -m panel`）
 - 根目录 `*_v1.txt`：整体技术方案与调通方案
