@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="panel-token" content="{{TOKEN}}">
+<title>Hands 控制面板</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header id="top">
+  <div class="row">
+    <span id="lamp" class="lamp idle" title="浏览器状态"></span>
+    <b id="lampText">未启动</b>
+    <button id="bStart">启动</button>
+    <button id="bStop">停止</button>
+    <button id="bRestart">重启</button>
+    <span class="sep"></span>
+    <label class="seg"><input type="radio" name="mode" value="headless" checked> 无界面</label>
+    <label class="seg"><input type="radio" name="mode" value="headed"> 有界面</label>
+    <button id="bFront" title="把 Chrome 窗口调到前台">调到前台</button>
+    <span class="muted">崩溃 <b id="crashes">0</b> 次</span>
+    <span class="spacer"></span>
+    <span id="running" class="running"></span>
+  </div>
+  <div class="row">
+    <button id="bBack" title="后退">←</button>
+    <button id="bReload" title="刷新">⟳</button>
+    <input id="addr" type="text" placeholder="输入网址回车打开" spellcheck="false">
+    <span id="title" class="muted ellipsis"></span>
+  </div>
+  <div id="chromeBar" class="banner warn hidden">
+    找不到 Chrome。请填写 chrome.exe 的完整路径：
+    <input id="chromePath" type="text" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe">
+    <button id="bChromePath">保存</button>
+  </div>
+  <div id="humanBar" class="banner alert hidden">
+    <b>需要人工：</b><span id="humanText"></span>
+    　请直接在预览里完成验证（已切到手动模式），完成后点
+    <button id="bContinue" class="primary">继续</button>
+  </div>
+</header>
+
+<main>
+  <section id="left">
+    <div id="stage">
+      <canvas id="frame" width="1280" height="800"></canvas>
+      <canvas id="overlay" width="1280" height="800"></canvas>
+      <textarea id="ime" aria-label="手动输入" autocomplete="off" spellcheck="false"></textarea>
+      <div id="noPreview" class="hidden">
+        <p id="noPreviewText">浏览器窗口在屏幕上（有界面模式不推流）</p>
+        <button id="bFront2">调到前台</button>
+        <button id="bPreviewOn">打开推流</button>
+      </div>
+    </div>
+    <div class="row small">
+      <span>叠加：</span>
+      <label><input type="checkbox" data-ov="boxes"> 元素框</label>
+      <label><input type="checkbox" data-ov="target" checked> 目标框</label>
+      <label><input type="checkbox" data-ov="traj" checked> 轨迹</label>
+      <label><input type="checkbox" data-ov="landing" checked> 落点</label>
+      <label><input type="checkbox" data-ov="over" checked> 过冲点</label>
+      <label><input type="checkbox" data-ov="cursor" checked> 光标</label>
+      <span class="spacer"></span>
+      <span id="mode" class="tag"></span>
+      <span id="fps" class="muted"></span>
+      <button id="bPreviewToggle" class="small">推流开/关</button>
+    </div>
+  </section>
+
+  <section id="right">
+    <nav id="tabs">
+      <button data-tab="run" class="on">运行</button>
+      <button data-tab="task">任务</button>
+      <button data-tab="net">网络</button>
+      <button data-tab="settings">设置</button>
+      <button data-tab="history">历史</button>
+      <button data-tab="profile">用户目录</button>
+      <button data-tab="collect">采集</button>
+    </nav>
+
+    <div class="tab on" id="tab-run">
+      <fieldset>
+        <legend>演示页对比</legend>
+        <div class="row">
+          <label>种子 <input id="demoSeed" type="text" size="10" placeholder="留空用设置"></label>
+          <button id="bDemo" class="start">运行演示</button>
+          <button id="bDemoReplay" class="start" title="用上一轮的种子再跑一轮">同种子重放</button>
+        </div>
+        <div id="demoSummary" class="muted"></div>
+        <table id="demoTable" class="grid"></table>
+      </fieldset>
+      <fieldset>
+        <legend>用例</legend>
+        <div class="row">
+          <select id="caseSel"></select>
+          <button id="bCase" class="start">运行用例</button>
+        </div>
+        <div id="caseResult"></div>
+      </fieldset>
+      <fieldset>
+        <legend>指定目标点击</legend>
+        <div class="row">
+          <button id="bTargetMode">进入点选模式</button>
+          <span class="muted">在预览上点一个元素，程序按当前设置去点它</span>
+        </div>
+        <div id="targetResult"></div>
+      </fieldset>
+      <fieldset>
+        <legend>手动操作</legend>
+        <div class="row">
+          <button id="bManual" class="start">进入手动模式</button>
+          <span class="muted">预览里的点击、滚轮、键盘（含中文输入法）直接发给自动化 Chrome</span>
+        </div>
+      </fieldset>
+      <div class="row">
+        <button id="bStopJob" class="danger">停止当前任务</button>
+        <span id="jobLine" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-task">
+      <h4>任务树</h4>
+      <div id="tree" class="muted">（运行用例时显示）</div>
+      <h4>步骤时间线</h4>
+      <table id="steps" class="grid"></table>
+    </div>
+
+    <div class="tab" id="tab-net">
+      <div id="waitBox" class="box"></div>
+      <h4>未完成请求</h4><ul id="pending" class="list"></ul>
+      <h4>失败请求</h4><ul id="failed" class="list"></ul>
+      <h4>console 报错</h4><ul id="console" class="list"></ul>
+      <p class="muted small">网址只以文字显示，点击复制。</p>
+    </div>
+
+    <div class="tab" id="tab-settings">
+      <p id="about" class="about"></p>
+      <form id="settingsForm" autocomplete="off"></form>
+      <div class="row">
+        <button id="bSaveSettings" class="primary">应用</button>
+        <button id="bSaveDefault">保存为默认</button>
+        <button id="bRestore">恢复默认</button>
+        <span id="settingsMsg" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-history">
+      <div class="row"><button id="bRuns">刷新</button></div>
+      <table id="runs" class="grid"></table>
+      <iframe id="report" sandbox="allow-same-origin" title="报告"></iframe>
+    </div>
+
+    <div class="tab" id="tab-profile">
+      <div id="profileInfo" class="box"></div>
+      <div class="row">
+        <button id="bProfile">刷新</button>
+        <button id="bClear" class="danger">清空</button>
+      </div>
+      <div id="clearConfirm" class="hidden box">
+        确认清空自动化 Chrome 的专用用户目录（登录、Cookie、网站设置都会删除）？请输入 <b>清空</b> 两个字：
+        <input id="clearText" type="text" size="6">
+        <button id="bClearGo" class="danger">确认清空</button>
+        <button id="bClearCancel">取消</button>
+      </div>
+      <div id="profileMsg" class="muted"></div>
+    </div>
+
+    <div class="tab" id="tab-collect">
+      <p><a href="/collect" class="primary-link">打开本地采集页 →</a>　（仿真实网站，按 8 方向出题；鼠标、触控板各 8 × 5 条）</p>
+      <div id="grid" class="box"></div>
+      <h4>真实网站采集（有界面）</h4>
+      <p class="muted small">先切到“有界面”，在 Chrome 窗口里打开要采集的网站（只用于已授权的测试对象）。开始后：先在页面上随便点一下作为起点，
+        然后点橙色高亮的元素，一题接一题。只在采集期间往页面的隔离环境注入只读监听，结束即撤除；不记录页面文字。</p>
+      <div class="row">
+        设备：<select id="srDevice"><option value="">请选择</option><option value="mouse">鼠标</option><option value="touchpad">触控板</option></select>
+        <button id="bSrStart" class="primary">开始真实网站采集</button>
+        <button id="bSrStop">结束采集</button>
+        <button id="bSrBack">后退</button>
+      </div>
+      <div id="srMsg" class="box hidden"></div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

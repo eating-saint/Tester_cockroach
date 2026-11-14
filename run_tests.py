@@ -1,4 +1,4 @@
-"""一键验收：python run_tests.py [--only T03,T05] [--rounds 50] [--headed]
+"""一键验收：python run_tests.py [--only T03,T05] [--rounds 50] [--headed] [--humanize] [--seed N]
 
 依次运行 tests/acceptance/tNN_*.py（T01–T17），输出 编号 / 通过或失败 / 耗时 / 失败原因 表。
 """
@@ -39,7 +39,7 @@ async def main(args) -> int:
     from common import Ctx
 
     only = {t.strip().upper() for t in args.only.split(",")} if args.only else None
-    ctx = Ctx(headed=args.headed, rounds=args.rounds)
+    ctx = Ctx(headed=args.headed, rounds=args.rounds, humanize=args.humanize, seed=args.seed)
     rows = []
     try:
         for tid, mod in discover(only):
@@ -74,4 +74,6 @@ if __name__ == "__main__":
     ap.add_argument("--only", default="")
     ap.add_argument("--rounds", type=int, default=50)
     ap.add_argument("--headed", action="store_true")
+    ap.add_argument("--humanize", action="store_true", help="整轮验收都打开鼠标轨迹和干扰项")
+    ap.add_argument("--seed", type=int, default=None)
     sys.exit(asyncio.run(main(ap.parse_args())))

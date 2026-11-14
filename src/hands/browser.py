@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -12,12 +15,20 @@ import httpx
 from .cdp import BrowserCrashed, CDPConnection
 from .config import Config
 
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
+IS_WIN = sys.platform == "win32"
+CREATE_NEW_PROCESS_GROUP = 0x00000200 if IS_WIN else 0
+CREATE_NO_WINDOW = 0x08000000 if IS_WIN else 0
+
+
+def _posix_profile_pids(profile_dir: Path) -> list[int]:
+    out = subprocess.run(["pgrep", "-f", "--", f"--user-data-dir={profile_dir}"], capture_output=True, text=True).stdout
+    return [int(x) for x in out.split() if x.strip().isdigit() and int(x) != os.getpid()]
 
 
 def profile_chrome_pids(profile_dir: Path) -> list[int]:
     """按命令行中的 user-data-dir 找出属于该 profile 的 chrome.exe 进程。"""
+    if not IS_WIN:
+        return _posix_profile_pids(profile_dir)
     needle = str(Path(profile_dir)).lower().replace("'", "''")
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
           f"Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLower().Contains('{needle}') }} | "
@@ -33,6 +44,16 @@ def profile_chrome_pids(profile_dir: Path) -> list[int]:
 
 
 def profile_chrome_ws_mb(profile_dir: Path) -> float:
+    if not IS_WIN:
+        total = 0
+        for pid in _posix_profile_pids(profile_dir):
+            try:
+                for line in open(f"/proc/{pid}/status"):
+                    if line.startswith("VmRSS:"):
+                        total += int(line.split()[1])
+            except OSError:
+                pass
+        return total / 1024
     needle = str(Path(profile_dir)).lower().replace("'", "''")
     ps = ("(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
           f"Where-Object {{ $_.CommandLine -and $_.CommandLine.ToLower().Contains('{needle}') }} | "
@@ -43,6 +64,15 @@ def profile_chrome_ws_mb(profile_dir: Path) -> float:
 
 
 def kill_tree(pid: int):
+    if not IS_WIN:
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        return
     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
                    creationflags=CREATE_NO_WINDOW)
 
@@ -80,6 +110,8 @@ class BrowserManager:
                 f"--window-size={w},{h}"]
         if self.headless:
             args.append("--headless")
+        if not IS_WIN and hasattr(os, "geteuid") and os.geteuid() == 0:
+            args.append("--no-sandbox")          # 仅 Linux 以 root 运行时需要（例如容器里）
         args.append("about:blank")
         return args
 
@@ -90,8 +122,8 @@ class BrowserManager:
             kill_tree(pid)
         port_file = Path(cfg.profile_dir) / "DevToolsActivePort"
         port_file.unlink(missing_ok=True)
-        self.proc = subprocess.Popen(self._args(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                     creationflags=CREATE_NEW_PROCESS_GROUP)
+        extra = {"creationflags": CREATE_NEW_PROCESS_GROUP} if IS_WIN else {"start_new_session": True}
+        self.proc = subprocess.Popen(self._args(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **extra)
         # 条件轮询：等端口文件出现（进程级事件，没有可订阅的通知）
         deadline = time.monotonic() + 15
         while True:

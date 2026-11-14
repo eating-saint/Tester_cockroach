@@ -1,0 +1,41 @@
+name: g05_walmart_food
+start_url: https://www.google.com/
+root_goal: 在 Google 搜索“walmart”，结果（标题或摘要）含 chicken / bake / bread 的就用鼠标点进去；进去后页面里有 customer，就点一下页面上面积最大的按钮
+inputs: {query: "walmart"}
+limits: {max_depth: 2, max_steps: 40}
+timeout_s: 360
+rules:
+  - when: {steps_used: 0, element: {role: [combobox, searchbox, textbox], name_contains: "搜索", enabled: true}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.query}}"}}
+  - when: {last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  # 结果页：某条结果（标题 + 摘要）含关键词就用鼠标点进去（Google 结果链接是 /goto? 或 /url? 跳转，也接受直接站外链接）
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: [chicken, bake, bread], href_contains: "/goto?"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: [chicken, bake, bread], href_contains: "/url?"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: [chicken, bake, bread], href_not_contains: ["google.", "/search?"]}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  # 滑到底还没有：点“下一页”；否则滚轮往下滑接着找
+  - when: {url_contains: ["google.", "search"], last_tool: scroll, last_effective: false, steps_used: {max: 34}, element: {role: link, name_contains: "下一页"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: ["google.", "search"], steps_used: {max: 34}}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  # 进入网页：先用滚轮往下滑一屏
+  - when: {url_not_contains: "google.", read_count: 0, last_tool: click}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  # 有 customer：先把含 customer 的行读出来（留作记录）
+  - when: {url_not_contains: "google.", read_count: 0, text_contains: customer}
+    do: {tool: read_text, arguments: {contains: customer}}
+  - when: {url_not_contains: "google.", read_count: 0}
+    do: {tool: complete, arguments: {summary: 页面里没有 customer，不点按钮}}
+  # 再点页面上面积最大的按钮（只点一次；不点结账 / 下单 / 付款 / 购买 / 登录注册类按钮）
+  - when: {read_count: {min: 1}, last_tool: read_text, element: {role: button, largest: true, enabled: true, name_not_contains: [checkout, "place order", "buy now", pay, purchase, "sign in", "sign up", "create account", 结账, 下单, 付款, 购买, 登录, 注册]}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {read_count: {min: 1}, last_tool: click}
+    do: {tool: complete, arguments: {summary: "已点击最大的按钮。含 customer 的内容：{{last_read}}"}}
+  - when: {read_count: {min: 1}, last_tool: read_text}
+    do: {tool: complete, arguments: {summary: "页面有 customer，但没有可点的按钮。含 customer 的内容：{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则（结果里没有含 chicken / bake / bread 的网页）}}}
+expect:
+  root_status: done

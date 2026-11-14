@@ -22,8 +22,11 @@ FIXTURES = PROJECT_ROOT / "fixtures"
 
 
 class Ctx:
-    def __init__(self, headed: bool = False, rounds: int = 50):
+    def __init__(self, headed: bool = False, rounds: int = 50, humanize: bool = False, seed: int | None = None):
+        from hands.humanize import apply_cli
+
         self.config = load_config(headless=False if headed else None)
+        self.config.humanize = apply_cli(self.config.humanize, humanize, seed)
         self.rounds = rounds
         self.base = f"http://127.0.0.1:{PORT}"
         self.xbase = f"http://localhost:{PORT}"
@@ -97,15 +100,21 @@ class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
                 ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
 
 
-_k32 = ctypes.WinDLL("kernel32")
-_psapi = ctypes.WinDLL("psapi")
-_k32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
-_psapi.GetProcessMemoryInfo.argtypes = [ctypes.wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
-                                        ctypes.wintypes.DWORD]
-_psapi.GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
+if sys.platform == "win32":
+    _k32 = ctypes.WinDLL("kernel32")
+    _psapi = ctypes.WinDLL("psapi")
+    _k32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
+    _psapi.GetProcessMemoryInfo.argtypes = [ctypes.wintypes.HANDLE, ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                                            ctypes.wintypes.DWORD]
+    _psapi.GetProcessMemoryInfo.restype = ctypes.wintypes.BOOL
 
 
 def python_rss_mb() -> float:
+    if sys.platform != "win32":
+        for line in open("/proc/self/status"):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / 1024
+        return 0.0
     c = PROCESS_MEMORY_COUNTERS()
     c.cb = ctypes.sizeof(c)
     if not _psapi.GetProcessMemoryInfo(_k32.GetCurrentProcess(), ctypes.byref(c), c.cb):

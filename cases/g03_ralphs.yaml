@@ -1,0 +1,36 @@
+name: g03_ralphs
+start_url: https://www.google.com/
+root_goal: 在 Google 搜索“ralphs”，结果（标题或摘要）含“外送”或“吃”的就用鼠标点进去，进去后用滚轮往下滑，读出含关键词的内容
+inputs: {query: "ralphs"}
+limits: {max_depth: 2, max_steps: 40}
+timeout_s: 300
+rules:
+  - when: {steps_used: 0, element: {role: [combobox, searchbox, textbox], name_contains: "搜索", enabled: true}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.query}}"}}
+  - when: {last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  # 结果页：某条结果（标题 + 摘要）含关键词，就用鼠标点它的链接进去（Google 的结果链接是 /goto? 或 /url? 跳转；也接受直接的站外链接；不点“相关搜索”等 Google 自己的链接）
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: ["外送", "吃"], href_contains: "/goto?"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: ["外送", "吃"], href_contains: "/url?"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: ["google.", "search"], element: {role: link, in_viewport: true, context_contains: ["外送", "吃"], href_not_contains: ["google.", "/search?"]}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  # 滑到底（上一次滚轮没滚动）还没有：点“下一页”
+  - when: {url_contains: ["google.", "search"], last_tool: scroll, last_effective: false, steps_used: {max: 34}, element: {role: link, name_contains: "下一页"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  # 这一屏没有：滚轮往下滑接着找
+  - when: {url_contains: ["google.", "search"], steps_used: {max: 34}}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  # 进入网页：先用滚轮往下滑一屏，再读出含关键词的行
+  - when: {url_not_contains: "google.", last_tool: click}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  - when: {url_not_contains: "google.", read_count: 0, text_contains: "外送"}
+    do: {tool: read_text, arguments: {contains: "外送"}}
+  - when: {url_not_contains: "google.", read_count: 0, text_contains: "吃"}
+    do: {tool: read_text, arguments: {contains: "吃"}}
+  - when: {read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则（结果里没有含关键词的网页，或网页正文不含关键词）}}}
+expect:
+  root_status: done

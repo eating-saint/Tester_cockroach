@@ -1,0 +1,8 @@
+{
+  "fixture": "F12",
+  "center": "中心",
+  "around": ["东", "东南", "南", "西南", "西", "西北", "北", "东北"],
+  "tiny": "小按钮",
+  "min_moves_per_click": 5,
+  "max_residual_px": 1
+}

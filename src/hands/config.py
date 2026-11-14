@@ -2,16 +2,23 @@
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# 数据目录：配置、用户目录、运行记录、轨迹库都相对它。打包后由环境变量指向 <程序目录>/data，
+# 开发时不设置，和以前一样就是项目根目录。
+DATA_ROOT = Path(os.environ["HANDS_DATA_DIR"]).resolve() if os.environ.get("HANDS_DATA_DIR") else PROJECT_ROOT
 
 DEFAULT_CAPTCHA_MARKERS = [
     "captcha", "challenge", "recaptcha", "hcaptcha", "turnstile",
     "verify you are human", "验证您是人类", "人机验证",
+    "challenges.cloudflare.com",
+    "robot or human", "human challenge", "人工验证挑战",   # PerimeterX 类“按住按钮”验证（如 Walmart）
 ]
 
 
@@ -29,6 +36,7 @@ class Config:
     min_interval_s: dict = field(default_factory=lambda: {"bing.com": 20})
     captcha_markers: list = field(default_factory=lambda: list(DEFAULT_CAPTCHA_MARKERS))
     runs_dir: Path = Path("runs")
+    humanize: dict = field(default_factory=dict)   # 鼠标轨迹与干扰项，见 humanize.py；默认全部关闭
 
 
 def find_chrome() -> str:
@@ -40,12 +48,17 @@ def find_chrome() -> str:
     for c in candidates:
         if c.exists():
             return str(c)
+    if sys.platform != "win32":              # 非 Windows（例如 CI 或 Linux 机器）
+        for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            found = shutil.which(name)
+            if found:
+                return found
     raise FileNotFoundError("chrome.exe not found in: " + ", ".join(map(str, candidates)))
 
 
 def _abs(p) -> Path:
     p = Path(p)
-    return p if p.is_absolute() else (PROJECT_ROOT / p)
+    return p if p.is_absolute() else (DATA_ROOT / p)
 
 
 def load_config(path: str | os.PathLike | None = "config.yaml", **overrides) -> Config:

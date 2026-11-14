@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F13 Turnstile 强制交互</title>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body style="font:14px sans-serif;padding:30px">
+  <h1>下单前验证（Turnstile 官方测试密钥：强制交互）</h1>
+  <p>站点密钥 3x00000000000000000000FF：Cloudflare 公布的测试密钥，必须人工点一下验证框。需要联网。</p>
+  <div class="cf-turnstile" data-sitekey="3x00000000000000000000FF" data-callback="onOk"></div>
+  <p id="out"></p>
+  <script>function onOk(){ document.getElementById('out').textContent = '验证已通过'; }</script>
+</body></html>

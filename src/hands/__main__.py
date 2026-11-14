@@ -1,4 +1,5 @@
-"""python -m hands run <case.yaml...> [--headed] [--config config.yaml]"""
+"""python -m hands run <case.yaml...> [--headed] [--config config.yaml]
+                      [--humanize | --humanize-only mouse,think,scroll_jitter] [--seed N]"""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from .browser import BrowserManager
 from .config import PROJECT_ROOT, load_config
+from .humanize import apply_cli
 from .recorder import RunRecorder
 from .runner import CaseRunner, load_case
 
@@ -16,6 +18,7 @@ FIXTURE_PORT = 8765
 
 async def run(args) -> int:
     cfg = load_config(args.config, headless=False if args.headed else None)
+    cfg.humanize = apply_cli(cfg.humanize, args.humanize, args.seed, args.humanize_only)
     texts = [Path(p).read_text(encoding="utf-8") for p in args.cases]
     server = None
     if any("${BASE}" in t or "${XBASE}" in t for t in texts):
@@ -49,6 +52,9 @@ def main():
     r.add_argument("--headed", action="store_true")
     r.add_argument("--config", default="config.yaml")
     r.add_argument("--label", default="")
+    r.add_argument("--humanize", action="store_true", help="打开鼠标轨迹、思考时间、滚轮乱动三项")
+    r.add_argument("--humanize-only", default=None, help="只打开部分，例如 mouse 或 mouse,think")
+    r.add_argument("--seed", type=int, default=None, help="固定随机种子，用于重放")
     args = ap.parse_args()
     sys.exit(asyncio.run(run(args)))
 

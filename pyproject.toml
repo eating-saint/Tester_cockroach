@@ -11,9 +11,14 @@ dependencies = ["websockets", "httpx", "pillow", "pyyaml"]
 
 [project.optional-dependencies]
 test = ["pytest", "pytest-asyncio"]
+panel = ["aiohttp", "pywebview"]
+build = ["pyinstaller"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+panel = ["static/*"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

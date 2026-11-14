@@ -119,7 +119,7 @@ class Monitor:
         if p.get("type") in IGNORED_TYPES:
             return
         url = p.get("request", {}).get("url", "")
-        if url.startswith("data:"):
+        if url.startswith(("data:", "blob:")):      # 页面内存里的数据，不走网络
             return
         key = p["requestId"]
         if key in self._pending:  # redirect
@@ -128,6 +128,9 @@ class Monitor:
             self._pending[key] = RequestInfo(url=url, started_at=time.time(), frame_id=p.get("frameId"))
             self._owner[key] = (sid, p.get("type"))
             if p.get("type") != "Document" and self.PHASES.index(self.lifecycle) >= self.PHASES.index("load"):
+                self._late[key] = time.monotonic()
+            elif p.get("type") in (None, "Other"):
+                # worker 脚本这类：结束事件常发到 worker 自己的会话，页面会话里收不到；挂满 LONG_POLL_S 就不再阻塞
                 self._late[key] = time.monotonic()
         self._touch()
 
@@ -140,6 +143,9 @@ class Monitor:
             self._failed_keys.add(key)
         if key in self._pending:
             self._pending[key].status = status
+            # 已收到响应头的非文档请求：从这时起计时，挂满 LONG_POLL_S 仍没结束（流式响应、交给 worker 的脚本）就不再阻塞
+            if self._owner.get(key, (None, None))[1] != "Document" and key not in self._late:
+                self._late[key] = time.monotonic()
 
     def _drop(self, key) -> RequestInfo | None:
         self._owner.pop(key, None)

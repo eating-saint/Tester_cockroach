@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from .cdp import ALL, CDPConnection, CDPError, CDPSession, attach_page
 from .config import Config
 from .monitor import Monitor
+from .status import STATUS
 
 
 @dataclass
@@ -72,6 +73,8 @@ class Page:
         for d in ("Page", "Network", "Runtime", "Log", "DOM"):
             await s.send(f"{d}.enable")
         await s.send("Page.setLifecycleEventsEnabled", {"enabled": True})
+        # 让页面始终按"有焦点"处理：否则在部分无头环境（以及窗口被遮挡时）滚轮等输入事件会一直等不到确认
+        await s.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
         tree = await s.send("Page.getFrameTree")
         self.main_frame_id = tree["frameTree"]["frame"]["id"]
         main.frame_id = self.main_frame_id
@@ -87,6 +90,7 @@ class Page:
                 self._loaded.set()
         except CDPError:
             pass
+        STATUS.page_changed()
 
     async def _auto_attach(self, s: CDPSession):
         try:
@@ -185,6 +189,12 @@ class Page:
 
     async def wait_settled(self, after_navigation: bool = False, timeout: float | None = None) -> WaitResult:
         timeout = self.config.nav_timeout_s if timeout is None else timeout
+        try:
+            return await self._wait_settled(timeout)
+        finally:
+            STATUS.clear_wait()
+
+    async def _wait_settled(self, timeout: float) -> WaitResult:
         start = time.monotonic()
         deadline = start + timeout
         quiet = self.config.quiet_ms / 1000
@@ -194,12 +204,15 @@ class Page:
                               self.monitor.pending_urls() if status != "ok" else [])
 
         if not self._loaded.is_set():
+            STATUS.set_wait("load", timeout)
             try:
                 await asyncio.wait_for(self._loaded.wait(), max(0.0, deadline - time.monotonic()))
             except asyncio.TimeoutError:
                 return result("timeout")
         if self._setup_tasks:
             await asyncio.wait(list(self._setup_tasks), timeout=max(0.0, deadline - time.monotonic()))
+        STATUS.set_wait("network_quiet", timeout)
+        STATUS.wait.since = start
         while True:
             now = time.monotonic()
             pending = self.monitor.blocking_count()

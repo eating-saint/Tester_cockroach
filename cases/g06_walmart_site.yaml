@@ -1,0 +1,37 @@
+name: g06_walmart_site
+start_url: https://www.walmart.com/
+root_goal: 在 walmart.com 上看到含 chicken / bake / bread 的商品就用鼠标点进去；商品页里有 customer，就点一下页面上面积最大的按钮
+inputs: {fallback_query: "chicken"}
+limits: {max_depth: 2, max_steps: 40}
+timeout_s: 360
+rules:
+  # 首页 / 搜索结果：看到商品（卡片文字含关键词、链接是商品页 /ip/）就点进去
+  - when: {url_not_contains: "/ip/", element: {role: link, in_viewport: true, context_contains: [chicken, bake, bread], href_contains: "/ip/"}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  # 首页先用滚轮往下找（前 8 步）
+  - when: {url_not_contains: ["/ip/", "/search"], steps_used: {max: 8}}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  # 首页没有：在 Walmart 自己的搜索框里搜 chicken（兜底，用户没指定这一步）
+  - when: {url_not_contains: ["/ip/", "/search"], last_tool: scroll, element: {role: [combobox, searchbox, textbox], name_contains: "search", enabled: true}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.fallback_query}}"}}
+  - when: {last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  - when: {url_contains: "/search", url_not_contains: "/ip/", steps_used: {max: 34}}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  # 商品页：先用滚轮往下滑一屏
+  - when: {url_contains: "/ip/", read_count: 0, last_tool: click}
+    do: {tool: scroll, arguments: {direction: down, pixels: 700}}
+  - when: {url_contains: "/ip/", read_count: 0, text_contains: customer}
+    do: {tool: read_text, arguments: {contains: customer}}
+  - when: {url_contains: "/ip/", read_count: 0}
+    do: {tool: complete, arguments: {summary: 商品页里没有 customer，不点按钮}}
+  # 点页面上面积最大的按钮（只点一次；不点加购物车 / 结账 / 下单 / 付款 / 购买 / 登录注册类按钮）
+  - when: {read_count: {min: 1}, last_tool: read_text, element: {role: button, largest: true, enabled: true, name_not_contains: ["add to cart", cart, checkout, "place order", "buy now", pay, purchase, "sign in", "sign up", "create account", 结账, 下单, 付款, 购买, 购物车, 登录, 注册]}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {read_count: {min: 1}, last_tool: click}
+    do: {tool: complete, arguments: {summary: "已点击最大的按钮。含 customer 的内容：{{last_read}}"}}
+  - when: {read_count: {min: 1}, last_tool: read_text}
+    do: {tool: complete, arguments: {summary: "页面有 customer，但没有可点的按钮。含 customer 的内容：{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则}}}
+expect:
+  root_status: done

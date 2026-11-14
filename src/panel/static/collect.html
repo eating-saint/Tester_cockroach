@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="panel-token" content="{{TOKEN}}">
+<title>轨迹采集</title>
+<link rel="stylesheet" href="/static/collect.css">
+</head>
+<body>
+<header id="top">
+  <div class="row">
+    <b>本地轨迹采集</b>
+    <a href="/" class="small">← 返回面板</a>
+    <span class="sep"></span>
+    设备：
+    <label><input type="radio" name="device" value="mouse"> 鼠标</label>
+    <label><input type="radio" name="device" value="touchpad"> 触控板</label>
+    <span class="sep"></span>
+    <button id="bGroup" class="primary" disabled>开始一组（8 题）</button>
+    <button id="bFill" disabled>补采到满</button>
+    <button id="bStopCollect" disabled>暂停</button>
+    <span class="spacer"></span>
+    <button data-view="collect" class="view on">采集</button>
+    <button data-view="samples" class="view">样本</button>
+  </div>
+  <div class="row">
+    <span id="msg" class="msg">先选择设备（鼠标 / 触控板），再点“开始一组”。</span>
+  </div>
+</header>
+
+<main>
+  <section id="left">
+    <div id="area" tabindex="-1">
+      <div id="layout"></div>
+      <canvas id="draw"></canvas>
+    </div>
+    <p class="muted small">说明：先点绿框“①先点这里”，然后像平常一样把鼠标移到橙框“②再点这里”并点下去。
+      点偏、移出采集区或超过 5 秒会作废并重出这道题。采集区里的控件都是假的，点了不会跳转。</p>
+  </section>
+
+  <aside id="right">
+    <h3>进度（每格目标 5 条，显示 本地 / 真实）</h3>
+    <div id="grids"></div>
+
+    <div id="samplesView" class="hidden">
+      <h3>样本</h3>
+      <div class="row">
+        筛选：
+        <select id="fDevice"><option value="">全部设备</option><option value="mouse">鼠标</option><option value="touchpad">触控板</option></select>
+        <select id="fSource"><option value="">全部来源</option><option value="local">本地</option><option value="real">真实网站</option></select>
+        <button id="bRefresh" class="small">刷新</button>
+      </div>
+      <div class="row">
+        <button id="bReplay" class="small" disabled>回放</button>
+        <button id="bDelete" class="small danger" disabled>删除这条</button>
+        <span id="selInfo" class="muted small"></span>
+      </div>
+      <div id="list"></div>
+      <h3>导入 / 导出</h3>
+      <div class="row">
+        <button id="bExport">导出 JSON</button>
+      </div>
+      <div class="row">
+        <input id="fileIn" type="file" accept=".json,application/json">
+        <select id="impMode"><option value="merge">合并（跳过重复）</option><option value="replace">替换整个库</option></select>
+        <button id="bImport">导入</button>
+      </div>
+    </div>
+  </aside>
+</main>
+<script src="/static/collect.js"></script>
+</body>
+</html>

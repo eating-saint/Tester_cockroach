@@ -29,6 +29,7 @@ class Element:
     frame_path: list[str] = field(default_factory=list)
     in_shadow: bool = False
     _ref: NodeRef | None = field(default=None, repr=False)
+    context: str = ""          # 所在“块”的文字（如搜索结果的标题 + 摘要），见 _Doc.context_of
 
     def to_dict(self) -> dict:
         return {
@@ -37,6 +38,7 @@ class Element:
             "box": self.box.to_dict(), "visible": self.visible,
             "in_viewport": self.in_viewport, "enabled": self.enabled,
             "frame_path": list(self.frame_path), "in_shadow": self.in_shadow,
+            "context": self.context[:300],
         }
 
 
@@ -131,6 +133,22 @@ class _Doc:
             elif self.names[j] not in ("SCRIPT", "STYLE"):
                 stack.extend(reversed(self.children.get(j, [])))
         return _collapse(" ".join(out))[:limit]
+
+    def context_of(self, i: int, own: str, max_len: int = 600, max_up: int = 6) -> str:
+        """元素所在的“块”的文字：往上找祖先，取文字不超过 max_len 的最大那一层。
+        例：搜索结果链接只有标题，往上一两层就是“标题 + 网址 + 摘要”的结果块；再往上整页结果太长，停止。"""
+        best = own
+        j = self.parent[i] if i < len(self.parent) else -1
+        for _ in range(max_up):
+            if j is None or j < 0 or self.names[j] in ("BODY", "HTML", "#document"):
+                break
+            t = self.text_of(j, max_len + 1)
+            if len(t) > max_len:
+                break
+            if len(t) > len(best):
+                best = t
+            j = self.parent[j]
+        return best
 
     def body_text(self) -> str:
         lines: list[str] = []
@@ -241,7 +259,8 @@ class DomReader:
                 href=self._abs_href(attrs.get("href"), d) if tag == "a" else (attrs.get("src") if tag == "iframe" else None),
                 value=value, box=box, visible=visible, in_viewport=visible and box.intersects(viewport),
                 enabled=enabled, frame_path=list(path), in_shadow=d.in_shadow(i),
-                _ref=NodeRef(fs.session.session_id, bid)))
+                _ref=NodeRef(fs.session.session_id, bid),
+                context=d.context_of(i, text) if visible and tag != "iframe" else text))
             # 同进程子文档（同源 iframe）
             if tag == "iframe" and i in d.content_doc:
                 cdi = d.content_doc[i]

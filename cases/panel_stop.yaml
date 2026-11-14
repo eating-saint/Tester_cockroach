@@ -1,0 +1,8 @@
+name: panel_stop
+start_url: ${BASE}/f08_lazy/index.html
+root_goal: 在懒加载页反复滚动（步数多，用于测试面板中途停止）
+limits: {max_depth: 1, max_steps: 30}
+timeout_s: 300
+default: {do: {tool: scroll, arguments: {direction: down, pixels: 200}}}
+expect:
+  root_status: done

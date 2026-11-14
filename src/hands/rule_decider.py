@@ -23,6 +23,14 @@ def _as_list(v):
 
 
 def _match_element(page, spec: dict):
+    """按条件找元素：默认返回第一个满足的；largest: true 时返回满足条件里面积最大的。"""
+    if spec.get("largest"):
+        found = list(_iter_matches(page, spec))
+        return max(found, key=lambda e: e.box.width * e.box.height) if found else None
+    return next(_iter_matches(page, spec), None)
+
+
+def _iter_matches(page, spec: dict):
     roles = _as_list(spec["role"]) if "role" in spec else None
     for e in page.elements:
         if not e.visible:
@@ -31,14 +39,27 @@ def _match_element(page, spec: dict):
             continue
         if "name_contains" in spec and spec["name_contains"].lower() not in (e.name or "").lower():
             continue
+        if "name_not_contains" in spec and any(
+                x.lower() in (e.name or "").lower() for x in _as_list(spec["name_not_contains"])):
+            continue
         if "text_contains" in spec and spec["text_contains"].lower() not in (e.text or "").lower():
             continue
         if "href_contains" in spec and spec["href_contains"].lower() not in (e.href or "").lower():
             continue
+        if "context_contains" in spec and not any(
+                x.lower() in (getattr(e, "context", "") or e.text or e.name or "").lower()
+                for x in _as_list(spec["context_contains"])):
+            continue                       # 所在块（标题 + 摘要）含任一关键词
+        if "href_not_contains" in spec and (not e.href or any(
+                x.lower() in e.href.lower() for x in _as_list(spec["href_not_contains"]))):
+            continue                       # 没有链接地址的也排除：要的是指向站外的结果链接
+        if "in_viewport" in spec and bool(e.in_viewport) != bool(spec["in_viewport"]):
+            continue                       # 只认当前屏幕里看得到的（找不到就先用滚轮往下滑）
         if "enabled" in spec and e.enabled != spec["enabled"]:
             continue
-        return e
-    return None
+        if spec.get("largest") and (e.box.width * e.box.height <= 0 or e.frame_path):
+            continue                       # 比面积只比主文档里有尺寸的
+        yield e
 
 
 def _reads(inp: DecisionInput) -> list[dict]:

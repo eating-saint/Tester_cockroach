@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent))
 from helpers import el, page  # noqa: E402
@@ -59,6 +60,46 @@ async def test_handoff_order(tmp_path, monkeypatch):
     assert b.log == [("relaunch", False), ("navigate", "http://u"), ("enter",),
                      ("relaunch", True), ("navigate", "http://u")]
     assert (tmp_path / "captcha.png").exists()
+
+
+async def test_handoff_eof_falls_back_to_polling(tmp_path, monkeypatch):
+    """控制台读不到输入（EOFError）时不崩溃，改为轮询，验证码消失后继续。"""
+    async def fake_capture(page, full_page=False):
+        return b"png"
+    monkeypatch.setattr("hands.screenshot.capture", fake_capture)
+    polled = []
+
+    async def fake_wait(browser, markers=None, log=print, **kw):
+        polled.append(markers)
+        return True
+    monkeypatch.setattr(captcha, "wait_cleared", fake_wait)
+
+    def no_console():
+        raise EOFError
+    b = FakeBrowser()
+    b.page = FakePage(b.log)
+    await captcha.handoff(b, "http://u", tmp_path, input_fn=no_console, log=lambda m: None, markers=["captcha"])
+    assert polled == [["captcha"]]
+    assert b.log[-2:] == [("relaunch", True), ("navigate", "http://u")]
+
+
+def test_press_and_hold_block_page_hit():
+    from hands.config import DEFAULT_CAPTCHA_MARKERS
+    st = SimpleNamespace(url="https://www.walmart.com/blocked?url=Lw==", elements=[],
+                         body_text="Robot or human?\nActivate and hold the button to confirm that you’re human.")
+    assert captcha.detect(st, DEFAULT_CAPTCHA_MARKERS) == "text:robot or human"
+
+
+def test_signature_drops_fragment():
+    s1 = captcha.signature(page(url="https://a.com/p?x=1#top"), "iframe:turnstile")
+    s2 = captcha.signature(page(url="https://a.com/p?x=1"), "iframe:turnstile")
+    assert s1 == s2 == ("https://a.com/p?x=1", "iframe:turnstile")
+
+
+def test_cloudflare_iframe_hit():
+    f = el("e0", role="iframe", name="", tag="iframe")
+    f.href = "https://challenges.cloudflare.com/cdn-cgi/challenge-platform/turnstile/if/ov2"
+    assert captcha.detect(page([f]), M).startswith("iframe:")
 
 
 def test_normal_page():

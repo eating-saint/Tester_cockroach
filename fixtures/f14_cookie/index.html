@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F14 Cookie</title></head>
+<body style="font:14px sans-serif;padding:30px">
+  <h1>Cookie 保留检查</h1>
+  <p>打开 <code>?set=1</code> 写入 Cookie <code>panel_cookie=yes</code>（一年有效）；不带参数只显示当前 Cookie。</p>
+  <p>当前 Cookie：<b id="cookie"></b></p>
+  <script>
+    if (new URLSearchParams(location.search).has("set"))
+      document.cookie = "panel_cookie=yes; max-age=31536000; path=/";
+    document.getElementById("cookie").textContent = document.cookie || "（无）";
+  </script>
+</body></html>

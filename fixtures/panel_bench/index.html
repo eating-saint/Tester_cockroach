@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>推流基准</title>
+<style>body{margin:0;background:#fafafa;font:16px sans-serif;overflow:hidden}
+#dot{position:absolute;width:60px;height:60px;border-radius:50%;background:#2563eb}
+#n{position:fixed;left:8px;top:8px}</style></head>
+<body><div id="n">帧 0</div><div id="dot"></div>
+<script>
+  // 一个色块持续做圆周运动：每个动画帧都改变画面，推流上限就是能拿到多少帧
+  let k = 0; const dot = document.getElementById('dot'), n = document.getElementById('n');
+  function tick(t) {
+    k++; const a = t / 500;
+    dot.style.left = (innerWidth / 2 + Math.cos(a) * 250 - 30) + 'px';
+    dot.style.top = (innerHeight / 2 + Math.sin(a) * 250 - 30) + 'px';
+    n.textContent = '帧 ' + k; requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script></body></html>

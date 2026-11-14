@@ -1,0 +1,12 @@
+name: extra_turnstile
+start_url: ${BASE}/f13_turnstile/pass.html
+root_goal: 真实验证框（Cloudflare Turnstile 官方测试密钥，总是通过）：人工介入一次后继续，之后不再重复转人工
+limits: {max_depth: 1, max_steps: 3}
+timeout_s: 180
+rules:
+  - when: {read_count: 0}
+    do: {tool: read_text, arguments: {contains: 验证}}
+  - when: {read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+expect:
+  root_status: done
