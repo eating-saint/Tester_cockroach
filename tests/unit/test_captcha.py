@@ -22,6 +22,18 @@ def test_iframe_hit():
     assert captcha.detect(page([f]), M).startswith("iframe:")
 
 
+def test_hidden_zero_size_iframe_not_hit():
+    """新浪文章页：广告带进来的 0×0 不可见 recaptcha/api2/aframe 不是验证框（g02 误报转人工）。"""
+    f = el("e0", role="iframe", name="", tag="iframe", href="https://www.google.com/recaptcha/api2/aframe")
+    f.visible = False
+    f.box = SimpleNamespace(x=0, y=0, width=0, height=0)
+    assert captcha.detect(page([f]), M) is None
+    f.visible = True
+    assert captcha.detect(page([f]), M) is None      # 可见但 0 尺寸也不算
+    f.box = SimpleNamespace(x=10, y=10, width=304, height=78)
+    assert captcha.detect(page([f]), M).startswith("iframe:")
+
+
 def test_plain_word_in_text_not_hit():
     assert captcha.detect(page(body="Coding challenge results"), M) is None
 

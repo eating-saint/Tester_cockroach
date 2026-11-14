@@ -1,6 +1,7 @@
 """一键验收：python run_tests.py [--only T03,T05] [--rounds 50] [--headed] [--humanize] [--seed N]
+                               [--driver cdp|playwright]
 
-依次运行 tests/acceptance/tNN_*.py（T01–T17），输出 编号 / 通过或失败 / 耗时 / 失败原因 表。
+依次运行 tests/acceptance/tNN_*.py（T01–T17、T21–T23），输出 编号 / 通过或失败 / 耗时 / 失败原因 表。
 """
 from __future__ import annotations
 
@@ -39,7 +40,12 @@ async def main(args) -> int:
     from common import Ctx
 
     only = {t.strip().upper() for t in args.only.split(",")} if args.only else None
-    ctx = Ctx(headed=args.headed, rounds=args.rounds, humanize=args.humanize, seed=args.seed)
+    try:
+        ctx = Ctx(headed=args.headed, rounds=args.rounds, humanize=args.humanize, seed=args.seed, driver=args.driver)
+    except Exception as e:                       # 例如选了 Playwright 但未安装
+        print(e, file=sys.stderr)
+        return 2
+    print(f"驱动: {ctx.config.driver}", flush=True)
     rows = []
     try:
         for tid, mod in discover(only):
@@ -62,7 +68,7 @@ async def main(args) -> int:
         print(pad(r["id"], 6) + pad("通过" if r["passed"] else "失败", 6) + pad(f"{r['seconds']:.1f}", 9) + r["reason"])
     passed = sum(r["passed"] for r in rows)
     print("-" * 100)
-    print(f"通过 {passed}/{len(rows)}    产物目录: {ctx.run_root}")
+    print(f"驱动 {ctx.config.driver}    通过 {passed}/{len(rows)}    产物目录: {ctx.run_root}")
     (ctx.run_root / "acceptance.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if passed == len(rows) and rows else 1
 
@@ -76,4 +82,5 @@ if __name__ == "__main__":
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--humanize", action="store_true", help="整轮验收都打开鼠标轨迹和干扰项")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--driver", choices=["cdp", "playwright"], default=None, help="浏览器驱动，默认取 config.yaml")
     sys.exit(asyncio.run(main(ap.parse_args())))

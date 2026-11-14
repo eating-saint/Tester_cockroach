@@ -39,7 +39,12 @@ class Screencaster:
         async with self._lock:
             b = self.service.browser
             page = b.page if (b is not None and b.is_alive()) else None
-            sess = page.session if page is not None else None
+            sess = None
+            if page is not None and self.want_on:
+                try:
+                    sess = await page.panel_session()     # CDP 驱动：标签页会话；Playwright 驱动：它的 CDP 会话
+                except Exception:
+                    sess = None
             if not self.want_on or sess is None:
                 await self._stop_locked()
                 return
@@ -47,21 +52,21 @@ class Screencaster:
                 return
             await self._stop_locked()
             cb = self._on_frame
-            b.conn.on("Page.screencastFrame", cb, sess.session_id)
-            self._cb = (b.conn, cb, sess.session_id)
+            sess.on("Page.screencastFrame", cb)
+            self._cb = (sess, cb)
             try:
                 await sess.send("Page.startScreencast", {"format": "jpeg", "quality": self.quality,
                                                          "maxWidth": self.max_w, "maxHeight": self.max_h,
                                                          "everyNthFrame": 1})
                 self.active_session = sess
             except Exception:
-                b.conn.off("Page.screencastFrame", cb, sess.session_id)
+                sess.off("Page.screencastFrame", cb)
                 self._cb = None
 
     async def _stop_locked(self):
         if self._cb is not None:
-            conn, cb, sid = self._cb
-            conn.off("Page.screencastFrame", cb, sid)
+            sess, cb = self._cb
+            sess.off("Page.screencastFrame", cb)
             self._cb = None
         if self.active_session is not None:
             try:

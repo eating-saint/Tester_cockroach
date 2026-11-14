@@ -542,7 +542,30 @@ async def p27(ctx):
     return ok, "设置页用途说明含“已授权”“不用于规避”"
 
 
+# ---------------------------------------------------------------- Playwright 方案 AC5：面板切换驱动
+async def p31(ctx):
+    orig = (await ctx.state())["browser"]["driver"]
+    other = "playwright" if orig == "cdp" else "cdp"
+    await ctx.start_job("manual")
+    await ctx.wait_state(lambda s: s["busy"])
+    code, data = await ctx.req("POST", "/api/browser/driver", {"driver": other}, expect_ok=False)
+    still = (await ctx.state())["browser"]["driver"]
+    await ctx.post("/api/jobs/stop")
+    await ctx.wait_job()
+    if code != 409 or still != orig:
+        return False, f"任务中切换返回 {code}（应 409），驱动 {orig}→{still}"
+    notes = [f"任务中切换 → 409，驱动保持 {orig}"]
+    for d in (other, orig):
+        await ctx.post("/api/browser/driver", {"driver": d})
+        st = await ctx.wait_state(lambda s, d=d: s["browser"]["driver"] == d and s["browser"]["status"] == "running", 60)
+        await ctx.post("/api/nav", {"url": ctx.fixture("f01_static/index.html")})
+        st = await ctx.wait_state(lambda s: "f01_static" in (s["page"].get("url") or ""), 20)
+        notes.append(f"切到 {d}：状态 {st['browser']['status']}，页面 {st['page'].get('title')!r}")
+    return True, "；".join(notes)
+
+
 CHECKS = [("P01", p01), ("P02", p02), ("P03", p03), ("P04", p04), ("P05", p05), ("P06", p06), ("P07", p07),
           ("P08", p08), ("P09", p09), ("P10", p10), ("P11", p11), ("P12", p12), ("P13", p13), ("P14", p14),
           ("P15", p15), ("P16", p16), ("P17", p17_collect), ("P18", p18), ("P20", p20), ("P21", p21), ("P22", p22), ("P23", p23),
-          ("P24", p24_real), ("P25", p25), ("P27", p27), ("P30", p30_real_sample)]
+          ("P24", p24_real), ("P25", p25), ("P27", p27), ("P30", p30_real_sample), ("P31", p31)]
+CDP_ONLY = {"P30"}          # 真实网站采集：Playwright 驱动不支持（spec“不做的事”）

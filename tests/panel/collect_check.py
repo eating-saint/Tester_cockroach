@@ -13,9 +13,14 @@ import tempfile
 from pathlib import Path
 
 
+async def _sess(page):
+    """测试脚本要发原始 CDP 鼠标事件（含 buttons 状态）：两种驱动都经 panel_session() 提供 CDP 会话。"""
+    return await page.panel_session()
+
+
 async def _eval(page, expr: str, await_promise: bool = False):
-    r = await page.session.send("Runtime.evaluate", {"expression": expr, "returnByValue": True,
-                                                     "awaitPromise": await_promise})
+    r = await (await _sess(page)).send("Runtime.evaluate", {"expression": expr, "returnByValue": True,
+                                                            "awaitPromise": await_promise})
     if "exceptionDetails" in r:
         raise AssertionError(f"JS 异常: {r['exceptionDetails']}")
     return r["result"].get("value")
@@ -25,7 +30,7 @@ async def _mouse(page, kind, x, y, button="none"):
     p = {"type": kind, "x": x, "y": y, "button": button, "buttons": 1 if kind == "mousePressed" else 0}
     if kind in ("mousePressed", "mouseReleased"):
         p["clickCount"] = 1
-    await page.session.send("Input.dispatchMouseEvent", p)
+    await (await _sess(page)).send("Input.dispatchMouseEvent", p)
 
 
 def _c(b):
@@ -254,9 +259,7 @@ async def p17_collect(ctx):
             const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
             let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; })()""")
         notes.append(f"回放后画布像素 {painted}")
-        shot = await page.session.send("Page.captureScreenshot", {"format": "png"})
-        import base64
-        ctx.artifact("P17_collect.png").write_bytes(base64.b64decode(shot["data"]))
+        ctx.artifact("P17_collect.png").write_bytes(await page.screenshot())
 
         ok = k8 and k9_ok and all(rej.values()) and k10 and painted > 50
         return ok, "；".join(notes)

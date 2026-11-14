@@ -27,13 +27,15 @@ def pad(s: str, w: int) -> str:
 
 
 async def main(args) -> int:
-    from checks import CHECKS
+    from checks import CDP_ONLY, CHECKS
     from common import PanelCtx
 
     only = {x.strip().upper() for x in args.only.split(",")} if args.only else None
-    ctx = PanelCtx()
+    ctx = PanelCtx(driver=args.driver)
     ctx.rounds = args.rounds
     await ctx.start()
+    driver = ctx.svc.config.driver
+    print(f"驱动: {driver}", flush=True)
     rows = []
     try:
         await ctx.post("/api/browser/start")
@@ -41,6 +43,10 @@ async def main(args) -> int:
         ctx.svc.ensure_fixtures()
         for pid, fn in CHECKS:
             if only and pid not in only:
+                continue
+            if driver != "cdp" and pid in CDP_ONLY:
+                rows.append({"id": pid, "passed": None, "seconds": 0, "reason": f"不适用（{driver} 驱动不支持）"})
+                print(f"[{pid}] 不适用", flush=True)
                 continue
             print(f"[{pid}] 运行中……", flush=True)
             t0 = time.monotonic()
@@ -67,12 +73,14 @@ async def main(args) -> int:
     print(pad("编号", 6) + pad("结果", 6) + pad("耗时(s)", 9) + "说明 / 失败原因")
     print("-" * 100)
     for r in rows:
-        print(pad(r["id"], 6) + pad("通过" if r["passed"] else "失败", 6) + pad(f"{r['seconds']:.1f}", 9) + r["reason"])
-    passed = sum(r["passed"] for r in rows)
+        res = "不适用" if r["passed"] is None else ("通过" if r["passed"] else "失败")
+        print(pad(r["id"], 6) + pad(res, 6) + pad(f"{r['seconds']:.1f}", 9) + r["reason"])
+    counted = [r for r in rows if r["passed"] is not None]
+    passed = sum(bool(r["passed"]) for r in counted)
     print("-" * 100)
-    print(f"通过 {passed}/{len(rows)}    产物目录: {ctx.run_root}")
+    print(f"驱动 {driver}    通过 {passed}/{len(counted)}    产物目录: {ctx.run_root}")
     (ctx.run_root / "panel_acceptance.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    return 0 if rows and passed == len(rows) else 1
+    return 0 if counted and passed == len(counted) else 1
 
 
 if __name__ == "__main__":
@@ -81,4 +89,5 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="")
     ap.add_argument("--rounds", type=int, default=20, help="P24 连续运行次数")
+    ap.add_argument("--driver", choices=["cdp", "playwright"], default=None, help="浏览器驱动，默认取 config.yaml")
     sys.exit(asyncio.run(main(ap.parse_args())))

@@ -15,6 +15,7 @@ let elements = [];         // 元素框缓存（CSS 坐标）
 let hoverEl = null;
 let uiMode = "";           // "" | "target" | "manual"
 let lastAction = null;     // 最近一次动作（含轨迹）
+let driverSwitching = false;
 const ov = { boxes: false, target: true, traj: true, landing: true, over: true, cursor: true };
 
 // ---------------- API ----------------
@@ -193,13 +194,17 @@ function render(st) {
   const b = st.browser, busy = st.busy, job = st.job;
   if (job && job.id !== prevJob && prevJob !== undefined) { lastAction = null; drawOverlay(); }
   $("lamp").className = "lamp " + b.status;
-  $("lampText").textContent = STATUS_TEXT[b.status] || b.status;
+  $("lampText").textContent = (STATUS_TEXT[b.status] || b.status) + `（驱动：${b.driver === "playwright" ? "Playwright" : "CDP"}）`;
   $("crashes").textContent = b.crashes;
   const alive = b.status === "running" || b.status === "need_human";
   $("bStart").disabled = alive || b.need_chrome_path;
   $("bStop").disabled = busy || !alive;
   $("bRestart").disabled = busy || b.need_chrome_path;
   document.querySelectorAll('input[name=mode]').forEach((r) => { r.disabled = busy; r.checked = (r.value === "headless") === b.headless; });
+  const ds = $("driverSel");
+  ds.disabled = busy || driverSwitching || b.status === "crash_restarting";
+  ds.title = busy ? "有任务运行时不能切换驱动" : (b.driver_error || "浏览器驱动：切换会重启浏览器");
+  if (!driverSwitching && document.activeElement !== ds) ds.value = b.driver || "cdp";
   $("bFront").disabled = !alive;
   $("chromeBar").classList.toggle("hidden", !b.need_chrome_path);
   $("running").textContent = busy && job ? `正在运行：${job.title}` : "";
@@ -450,6 +455,15 @@ click("bStop", () => api("POST", "/api/browser/stop").catch(() => {}));
 click("bRestart", () => api("POST", "/api/browser/restart").catch(() => {}));
 document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", () =>
   api("POST", "/api/browser/mode", { headless: r.value === "headless" }).catch(() => {})));
+$("driverSel").addEventListener("change", () => {
+  const d = $("driverSel").value;
+  driverSwitching = true;
+  toast(`正在切换到 ${d === "cdp" ? "CDP" : "Playwright"} 驱动……`);
+  api("POST", "/api/browser/driver", { driver: d })
+    .then(() => toast(`已切换到 ${d === "cdp" ? "CDP" : "Playwright"} 驱动`))
+    .catch(() => {})
+    .finally(() => { driverSwitching = false; $("driverSel").blur(); });
+});
 const front = () => api("POST", "/api/browser/front").catch(() => {});
 click("bFront", front); click("bFront2", front);
 click("bPreviewOn", () => api("POST", "/api/preview", { on: true }).catch(() => {}));

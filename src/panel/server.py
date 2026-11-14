@@ -173,6 +173,11 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
 
     async def b_front(request):
         return await guarded(svc.front())
+
+    async def b_driver(request):
+        d = await body(request)
+        return await guarded(svc.set_driver(str(d.get("driver", ""))))
+    r.add_post("/api/browser/driver", b_driver)
     r.add_post("/api/browser/start", b_start)
     r.add_post("/api/browser/stop", b_stop)
     r.add_post("/api/browser/restart", b_restart)
@@ -258,7 +263,9 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
         if not svc.jobs.busy:
             svc.settings.apply_now(svc.config)
         from hands.config import DATA_ROOT
+        from .settings import save_yaml_values
         p = svc.settings.save_default(DATA_ROOT / "config.yaml")
+        save_yaml_values(DATA_ROOT / "config.yaml", {"driver": svc.config.driver})   # 当前驱动也作为默认
         return ok(str(p))
 
     async def settings_restore(request):
@@ -341,7 +348,7 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
                 elif t in ("mouse", "key", "text"):
                     if svc.jobs.accepts_input() and svc.browser_alive() and svc.browser.page is not None:
                         try:
-                            await svc.input.handle(svc.browser.page.session, m)
+                            await svc.input.handle(await svc.browser.page.panel_session(), m)
                         except Exception as e:
                             svc.log(f"[panel] 输入转发失败: {e}")
         finally:

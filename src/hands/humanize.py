@@ -340,8 +340,8 @@ class Humanizer:
             self.cursor = (self.rng.uniform(0.3, 0.7) * viewport[0], self.rng.uniform(0.3, 0.7) * viewport[1])
         return self.cursor
 
-    async def move_to(self, session, target: Box, viewport: tuple[float, float]) -> Move:
-        """沿轨迹逐点发送 mouseMoved，按轨迹的时间戳控制节奏。"""
+    async def move_to(self, mouse_move, target: Box, viewport: tuple[float, float]) -> Move:
+        """沿轨迹逐点移动鼠标（mouse_move 为 async (x, y)，由驱动提供），按轨迹的时间戳控制节奏。"""
         if self.cfg.mouse.source == "library":
             mv = plan_library_move(self.start_point(viewport), target, self.rng, self.cfg.mouse, viewport,
                                    self._library())
@@ -354,7 +354,7 @@ class Humanizer:
             delay = t0 + t / 1000 - loop.time()
             if delay > 0:
                 await asyncio.sleep(delay)  # humanize-pacing
-            await session.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+            await mouse_move(x, y)
         mv.actual_ms = int((loop.time() - t0) * 1000)
         self.cursor = mv.landing
         return mv

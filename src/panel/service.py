@@ -6,9 +6,10 @@ import sys
 import time
 from pathlib import Path
 
-from hands.browser import BrowserManager, profile_chrome_pids
-from hands.config import DATA_ROOT, PROJECT_ROOT, find_chrome, load_config
+from hands.browser import profile_chrome_pids
+from hands.config import DATA_ROOT, DRIVERS, PROJECT_ROOT, find_chrome, load_config
 from hands.dom import DomReader
+from hands.driver import create_browser
 from hands.status import STATUS
 
 from . import history, profile
@@ -38,7 +39,8 @@ class PanelService:
             need = not config.chrome_path
         self.config = config
         self.need_chrome_path = need
-        self.browser: BrowserManager | None = None
+        self.browser = None                  # BrowserManager 或 PwBrowserManager（按 config.driver）
+        self.driver_error = ""
         self.status = "idle"                 # idle | running | crash_restarting | need_human | stopped
         self.status_text = ""
         self.settings = LiveSettings(config)
@@ -108,7 +110,7 @@ class PanelService:
             raise RuntimeError("找不到 Chrome，请先设置 Chrome 路径")
         async with self._busy_browser:
             if self.browser is None:
-                self.browser = BrowserManager(self.config)
+                self.browser = self._new_browser()
             if headless is not None:
                 self.browser.headless = headless
             if not self.browser.is_alive():
@@ -135,7 +137,7 @@ class PanelService:
         async with self._busy_browser:
             await self.preview.stop()
             if self.browser is None:
-                self.browser = BrowserManager(self.config)
+                self.browser = self._new_browser()
                 await self.browser.start()
             else:
                 await self.browser.restart()
@@ -149,7 +151,7 @@ class PanelService:
             raise PermissionError("有任务在运行")
         async with self._busy_browser:
             if self.browser is None:
-                self.browser = BrowserManager(self.config)
+                self.browser = self._new_browser()
                 self.browser.headless = headless
                 await self.browser.start()
             else:
@@ -161,6 +163,46 @@ class PanelService:
         await self.preview.sync()
         self.push_soon()
 
+    def _new_browser(self):
+        """按 config.driver 创建浏览器；选了 Playwright 但未安装时抛出带安装提示的错误。"""
+        try:
+            b = create_browser(self.config)
+        except Exception as e:
+            self.driver_error = str(e)
+            self.push_soon()
+            raise RuntimeError(str(e)) from e
+        self.driver_error = ""
+        return b
+
+    async def set_driver(self, name: str):
+        """切换驱动：有任务时拒绝；否则停掉当前浏览器，按新驱动重新启动（保持原来的显示方式）。"""
+        if name not in DRIVERS:
+            raise ValueError(f"未知驱动：{name}")
+        if self.jobs.busy:
+            raise PermissionError("有任务在运行")
+        async with self._busy_browser:
+            headless = self.browser.headless if self.browser is not None else self.config.headless
+            await self.preview.stop()
+            if self.browser is not None:
+                await self.browser.stop()
+                self.browser = None
+            old = self.config.driver
+            self.config.driver = name
+            try:
+                self.browser = self._new_browser()
+            except RuntimeError:
+                self.config.driver = old
+                self.browser = None
+                self.status = "stopped"
+                raise
+            self.browser.headless = headless
+            await self.browser.start()
+            await self.browser.new_page()
+            self.status = "running"
+        self.log(f"[panel] 已切换驱动：{name}")
+        await self._auto_preview()
+        self.push_soon()
+
     async def _auto_preview(self):
         if self.browser is not None and self.browser.headless:
             self.preview.want_on = True
@@ -170,8 +212,8 @@ class PanelService:
         b = self.browser
         if not self.browser_alive() or b.page is None:
             raise RuntimeError("浏览器未运行")
-        await b.page.session.send("Page.bringToFront")
-        if not b.headless:
+        await b.page.bring_to_front()
+        if not b.headless and b.driver == "cdp":       # 窗口摆放只在 CDP 驱动下做（Playwright 方案不做）
             try:
                 w = await b.conn.send("Browser.getWindowForTarget", {"targetId": b.page.target_id})
                 await b.conn.send("Browser.setWindowBounds", {"windowId": w["windowId"],
@@ -242,12 +284,11 @@ class PanelService:
             return {"elements": [], "viewport": None}
         page = self.browser.page
         els, _ = await DomReader().read(page)
-        m = await page.session.send("Page.getLayoutMetrics")
-        vp = m.get("cssLayoutViewport", {})
+        lay = await page.layout()
         return {"elements": [{"id": e.id, "role": e.role, "name": e.name, "tag": e.tag, "box": e.box.to_dict(),
                               "visible": e.visible, "in_viewport": e.in_viewport, "frame_depth": len(e.frame_path)}
                              for e in els],
-                "viewport": {"w": vp.get("clientWidth"), "h": vp.get("clientHeight")}}
+                "viewport": {"w": lay["vw"], "h": lay["vh"]}}
 
     # ---------------- 夹具 ----------------
     def ensure_fixtures(self):
@@ -296,7 +337,7 @@ class PanelService:
     # ---------------- 状态 ----------------
     async def refresh_page_info(self):
         b = self.browser
-        if b is None or not b.is_alive() or b.page is None or b.page.session is None:
+        if b is None or not b.is_alive() or b.page is None or getattr(b.page, "session", True) is None:
             return
         try:
             self.page_info = {"url": await b.page.url(), "title": await b.page.title()}
@@ -337,7 +378,8 @@ class PanelService:
             status = "crash_restarting" if b.crashed.is_set() else "stopped"
         return {"status": status, "headless": (b.headless if b else self.config.headless),
                 "crashes": len(b.crash_history) if b else 0, "pid": b.pid if b and b.is_alive() else None,
-                "need_chrome_path": self.need_chrome_path}
+                "need_chrome_path": self.need_chrome_path,
+                "driver": b.driver if b is not None else self.config.driver, "driver_error": self.driver_error}
 
     def state(self) -> dict:
         b = self.browser

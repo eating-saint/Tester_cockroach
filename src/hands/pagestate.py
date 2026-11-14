@@ -63,9 +63,8 @@ async def build_page_state(page, save_dir=None, shot_name: str = "screenshot.png
     elements, body = await DomReader().read(page)
     url, title = await page.url(), await page.title()
     dpr = await shot.device_pixel_ratio(page)
-    metrics = await page.session.send("Page.getLayoutMetrics")
-    vp = metrics.get("cssLayoutViewport", {})
-    viewport = Box(vp.get("pageX", 0), vp.get("pageY", 0), vp.get("clientWidth", 0), vp.get("clientHeight", 0))
+    lay = await page.layout()
+    viewport = Box(lay["scroll_x"], lay.get("layout_y", lay["scroll_y"]), lay["vw"], lay["vh"])
     shot_rel = None
     if save_dir is not None:
         d = Path(save_dir)

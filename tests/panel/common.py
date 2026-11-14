@@ -13,7 +13,8 @@ from hands.config import PROJECT_ROOT
 
 
 class PanelCtx:
-    def __init__(self):
+    def __init__(self, driver: str | None = None):
+        self.driver = driver
         self.svc = None
         self.runner = None
         self.port = None
@@ -25,9 +26,12 @@ class PanelCtx:
         from panel.server import serve
         from panel.service import PanelService
         self.svc = PanelService()
+        if self.driver:
+            self.svc.config.driver = self.driver
         self.runner, self.port, self.token = await serve(self.svc, 0)
         self.http = aiohttp.ClientSession(headers={"X-Panel-Token": self.token})
-        self.run_root = self.svc.config.runs_dir / (time.strftime("%Y%m%d-%H%M%S") + "-panel-acceptance")
+        suffix = "" if self.svc.config.driver == "cdp" else f"-{self.svc.config.driver}"
+        self.run_root = self.svc.config.runs_dir / (time.strftime("%Y%m%d-%H%M%S") + "-panel-acceptance" + suffix)
         self.run_root.mkdir(parents=True, exist_ok=True)
 
     async def close(self):

@@ -90,6 +90,8 @@ class JobManager:
         if kind not in ("demo", "case", "target", "manual", "sample_real"):
             raise ValueError(f"unknown job kind: {kind}")
         if kind == "sample_real":
+            if getattr(self.svc.browser, "driver", self.svc.config.driver) != "cdp":
+                raise ValueError("Playwright 驱动不支持真实网站采集（请切换到 CDP 驱动）")
             if params.get("device") not in ("mouse", "touchpad"):
                 raise ValueError("请先选择设备（鼠标 / 触控板）")
             if self.svc.browser_alive() and self.svc.browser.headless and not params.get("allow_headless"):
@@ -322,9 +324,8 @@ class JobManager:
     async def _pick_real_target(self, page, start, device, rng):
         """从当前页可点、可见的主文档元素里挑目标：距离 150–600，优先格子最缺的方向。"""
         els, _ = await DomReader().read(page)
-        m = await page.session.send("Page.getLayoutMetrics")
-        vp = m.get("cssLayoutViewport", {})
-        vw, vh = vp.get("clientWidth", 0), vp.get("clientHeight", 0)
+        lay = await page.layout()
+        vw, vh = lay["vw"], lay["vh"]
         grid = self.svc.samples.grid().get(device, {})
         by_dir: dict[int, list] = {}
         for e in els:

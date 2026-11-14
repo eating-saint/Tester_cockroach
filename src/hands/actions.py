@@ -9,8 +9,8 @@ from typing import Any
 from .cdp import BrowserCrashed, CDPError
 from .status import STATUS
 from .dom import DomReader, Element
-from .geometry import Box, quad_to_box
-from .page import WaitResult
+from .geometry import Box
+from .page import KEYS, WaitResult
 
 
 @dataclass
@@ -35,11 +35,6 @@ class ActionResult:
         return d
 
 
-KEYS = {
-    "Enter": ("Enter", 13, "\r"), "Tab": ("Tab", 9, None), "Escape": ("Escape", 27, None),
-    "Backspace": ("Backspace", 8, None), "ArrowDown": ("ArrowDown", 40, None),
-    "ArrowUp": ("ArrowUp", 38, None), "PageDown": ("PageDown", 34, None), "End": ("End", 35, None),
-}
 
 
 class ActionExecutor:
@@ -112,54 +107,25 @@ class ActionExecutor:
         return (await self._locate_box(el)).center()
 
     async def _node_value(self, el: Element) -> str | None:
-        """读节点当前的 value（input / textarea）或可编辑元素的文字；读不到返回 None。只读，不改页面。"""
-        if el._ref is None:
-            return None
-        try:
-            fs = self.page.frame_of(el._ref.session_id)
-            obj = await fs.session.send("DOM.resolveNode", {"backendNodeId": el._ref.backend_node_id})
-            r = await fs.session.send("Runtime.callFunctionOn", {
-                "objectId": obj["object"]["objectId"], "returnByValue": True,
-                "functionDeclaration": "function(){return 'value' in this ? this.value : "
-                                       "(this.isContentEditable ? this.innerText : null)}"})
-            v = r.get("result", {}).get("value")
-            return None if v is None else str(v)
-        except Exception:
-            return None
+        return await self.page.node_value(el)
 
     async def _locate_box(self, el: Element) -> Box:
-        if el._ref is None:
-            raise LookupError(f"element {el.id} has no node reference")
-        fs = self.page.frame_of(el._ref.session_id)
-        chain = []
-        f = fs
-        while f.parent is not None:
-            chain.append(f)
-            f = f.parent
-        for child in reversed(chain):          # 先把各级 <iframe> 滚到可见
-            owner = await child.parent.session.send("DOM.getFrameOwner", {"frameId": child.frame_id})
-            await child.parent.session.send("DOM.scrollIntoViewIfNeeded", {"backendNodeId": owner["backendNodeId"]})
-        await fs.session.send("DOM.scrollIntoViewIfNeeded", {"backendNodeId": el._ref.backend_node_id})
-        await self.page.refresh_offsets()
-        q = await fs.session.send("DOM.getContentQuads", {"backendNodeId": el._ref.backend_node_id})
-        if not q.get("quads"):
-            raise LookupError(f"element {el.id} has no layout")
-        return quad_to_box(q["quads"][0]).offset(*fs.owner_offset)
+        return await self.page.locate_box(el)
 
     async def _viewport(self) -> tuple[float, float]:
-        vp = (await self.page.session.send("Page.getLayoutMetrics")).get("cssLayoutViewport", {})
-        return float(vp.get("clientWidth", 800)), float(vp.get("clientHeight", 600))
+        lay = await self.page.layout()
+        return lay["vw"], lay["vh"]
 
     async def _mouse_to(self, box: Box) -> tuple[float, float, dict | None, bytes | None]:
         """把鼠标移到目标框：开启轨迹时沿轨迹移动到框内随机落点，否则直接跳到中心。"""
         h = self.humanizer
         if h is None or not h.mouse_on:
             x, y = box.center()
-            await self.page.session.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+            await self.page.mouse_move(x, y)
             if h is not None:
                 h.jump_to(x, y)
             return x, y, None, None
-        mv = await h.move_to(self.page.session, box, await self._viewport())
+        mv = await h.move_to(self.page.mouse_move, box, await self._viewport())
         png = None
         if self.capture_trajectory:
             from .screenshot import capture
@@ -168,9 +134,7 @@ class ActionExecutor:
 
     async def _mouse_click(self, box: Box) -> tuple[float, float, dict | None, bytes | None]:
         x, y, traj, png = await self._mouse_to(box)
-        s = self.page.session
-        await s.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left", "clickCount": 1})
-        await s.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left", "clickCount": 1})
+        await self.page.mouse_click(x, y)
         return x, y, traj, png
 
     # ---------------- 干扰项（可选） ----------------
@@ -189,10 +153,8 @@ class ActionExecutor:
 
     async def _wheel(self, x: float, y: float, dy: float) -> bool:
         """在 (x, y) 处发一次滚轮，等滚动位置变化（到头时不变，最多等 1.5 秒）；返回是否滚动了。"""
-        s = self.page.session
         before = await self._scroll_y()
-        await s.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
-        await s.send("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": dy})
+        await self.page.mouse_wheel(x, y, dy)
         await self.page.wait_for(lambda: self._scroll_y(), lambda v: v != before, timeout=1.5)
         return (await self._scroll_y()) != before
 
@@ -207,8 +169,7 @@ class ActionExecutor:
         x, y = min(max(x, 1), vw - 2), min(max(y, 1), vh - 2)
         y0 = await self._scroll_y()
         # 只往有空间的方向乱动：在顶部就往下、在底部就往上，两边都滚不动就跳过（避免白等滚动超时）
-        m = await self.page.session.send("Page.getLayoutMetrics")
-        content_h = (m.get("cssContentSize") or m.get("contentSize") or {}).get("height", 0)
+        content_h = (await self.page.layout())["content_h"]
         room_down, room_up = max(content_h - vh - y0, 0), y0
         total = sum(parts)
         if (total > 0 and room_down < 1) or (total < 0 and room_up < 1):
@@ -249,16 +210,37 @@ class ActionExecutor:
                                 trajectory=traj, trajectory_png=png)
         return await self._run(go, tool="click")
 
+    async def open_tab(self, el: Element, switch: bool = False) -> ActionResult:
+        """Ctrl+点击：在新标签页打开链接，原标签页不关。switch=True 时切到新标签页继续（原页仍保留），
+        否则留在原页（新标签页在后台）。"""
+        async def go():
+            box = await self._locate_box(el)
+            x, y, traj, png = await self._mouse_to(box)
+            self.page.clear_spawned_tabs()
+            await self.page.mouse_click(x, y, ctrl=True)
+
+            async def take():
+                return self.page.take_spawned_tab()
+            tab = await self.page.wait_for(take, lambda v: v is not None, timeout=5)
+            if tab is None:
+                return ActionResult(False, False, error="没有打开新标签页", data={"x": x, "y": y},
+                                    trajectory=traj, trajectory_png=png)
+            if switch:
+                wait = await self.page.adopt_new_tab(tab)
+                # Ctrl+点击打开的是后台标签页；有界面时 Chrome 不绘制后台标签页，不切到前台截图会一直等不到
+                await self.page.bring_to_front()
+                return ActionResult(True, False, changes=["new_tab"], wait=wait,
+                                    data={"x": x, "y": y, "switched": True}, trajectory=traj, trajectory_png=png)
+            return ActionResult(True, False, changes=["new_tab_background"], wait=await self._settle(),
+                                data={"x": x, "y": y, "switched": False}, trajectory=traj, trajectory_png=png)
+        return await self._run(go, tool="open_tab")
+
     async def type(self, el: Element, text: str) -> ActionResult:
         async def go():
             box = await self._locate_box(el)
             _, _, traj, png = await self._mouse_click(box)
-            s = self.page.session
-            await s.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "a", "code": "KeyA",
-                                                    "windowsVirtualKeyCode": 65, "modifiers": 2, "commands": ["selectAll"]})
-            await s.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "code": "KeyA",
-                                                    "windowsVirtualKeyCode": 65, "modifiers": 2})
-            await s.send("Input.insertText", {"text": text})
+            await self.page.select_all()
+            await self.page.insert_text(text)
             wait = await self._settle()
             # 直接向节点要当前值：DOM 快照只给 <input> 带值，<textarea>（如 Google 搜索框）和可编辑元素拿不到
             got = await self._node_value(el)
@@ -275,19 +257,12 @@ class ActionExecutor:
         async def go():
             if key not in KEYS:
                 raise ValueError(f"unsupported key: {key}")
-            name, vk, text = KEYS[key]
-            s = self.page.session
-            down = {"type": "keyDown" if text else "rawKeyDown", "key": name, "code": name, "windowsVirtualKeyCode": vk}
-            if text:
-                down["text"] = text
-            await s.send("Input.dispatchKeyEvent", down)
-            await s.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": name, "code": name, "windowsVirtualKeyCode": vk})
+            await self.page.key_press(key)
             return ActionResult(True, False, wait=await self._settle())
         return await self._run(go, tool="press")
 
     async def _scroll_y(self) -> float:
-        m = await self.page.session.send("Page.getLayoutMetrics")
-        return m.get("cssVisualViewport", {}).get("pageY", 0)
+        return (await self.page.layout())["scroll_y"]
 
     async def scroll(self, direction: str | None = None, pixels: float | None = None,
                      to_bottom: bool = False) -> ActionResult:

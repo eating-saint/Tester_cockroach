@@ -13,21 +13,19 @@ async def run(ctx):
     notes = []
     # F5
     await page.navigate(ctx.url("f05_iframe/index.html"))
-    child = [f for f in page.sessions() if f.parent is not None]
-    if not child:
-        return False, "跨源 iframe 没有独立会话（未运行在独立进程）"
     await page.refresh_offsets()
+    child = 0
     for b in load_expected("f05_iframe")["buttons"]:
         els, _ = await read_elements(page)
         e = next((x for x in els if x.name == b["name"]), None)
         if e is None:
             return False, f"未读到 {b['name']}"
         if b["cross_origin"]:
-            fs = page.frame_of(e._ref.session_id)
-            if fs.parent is None:
-                return False, f"{b['name']} 不在跨源子会话中"
-            r = await page.evaluate(RECT % f"document.getElementById('{b['dom_id']}')", fs.session)
-            ox, oy = fs.owner_offset
+            (ox, oy), separate = await page.frame_info(e)
+            if not separate:
+                return False, f"{b['name']} 不在跨源（独立）frame 中"
+            child += 1
+            r = await page.evaluate_in_frame(e, RECT % f"document.getElementById('{b['dom_id']}')")
             real = [r[0] + ox, r[1] + oy, r[2], r[3]]
         else:
             real = await page.evaluate(
@@ -59,4 +57,4 @@ async def run(ctx):
     if got != b["result"]:
         return False, f"点击影子按钮结果 {got!r}"
     notes.append(f"影子按钮 误差{d:.1f}px")
-    return True, "；".join(notes) + f"；跨源子会话数 {len(child)}"
+    return True, "；".join(notes) + f"；跨源子会话数 {child}"

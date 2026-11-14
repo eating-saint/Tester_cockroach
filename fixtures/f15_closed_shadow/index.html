@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F15 封闭 Shadow DOM</title></head>
+<body style="margin:0;padding:60px 40px;font:14px sans-serif">
+  <div id="result">none</div>
+  <button id="plain" onclick="document.getElementById('result').textContent='plain-ok'">普通对照按钮</button>
+  <closed-box></closed-box>
+  <script>
+    class ClosedBox extends HTMLElement {
+      constructor() {
+        super();
+        const root = this.attachShadow({ mode: "closed" });
+        root.innerHTML = `<style>button{margin:30px 0 0 50px}</style><button>封闭影子按钮</button>`;
+        root.querySelector("button").addEventListener("click", () => {
+          document.getElementById("result").textContent = "closed-ok";
+        });
+      }
+    }
+    customElements.define("closed-box", ClosedBox);
+  </script>
+</body></html>

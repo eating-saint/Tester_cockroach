@@ -13,6 +13,7 @@ dependencies = ["websockets", "httpx", "pillow", "pyyaml"]
 test = ["pytest", "pytest-asyncio"]
 panel = ["aiohttp", "pywebview"]
 build = ["pyinstaller"]
+pw = ["playwright>=1.63"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

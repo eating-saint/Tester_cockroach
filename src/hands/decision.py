@@ -22,6 +22,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "complete": ToolSpec("tree", {"summary": str}),
     "fail": ToolSpec("tree", {"reason": str}),
     "click": ToolSpec("action", {"element": str}),
+    # 在新标签页打开链接（Ctrl+点击），原标签页保留；switch=true 时切到新标签页继续，否则留在原页
+    "open_tab": ToolSpec("action", {"element": str}, {"switch": bool}),
     "type": ToolSpec("action", {"element": str, "text": str}),
     "press": ToolSpec("action", {"key": str}),
     "scroll": ToolSpec("action", {}, {"direction": str, "pixels": (int, float), "to_bottom": bool}),

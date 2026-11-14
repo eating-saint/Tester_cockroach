@@ -1,4 +1,5 @@
 # ver0 全局配置；不写的项使用默认值
+driver: cdp                # 浏览器驱动：cdp = 自写原生 CDP；playwright = Playwright（需 pip install -e .[pw]，用本机 Chrome）
 chrome_path: ""            # 留空 = 自动查找
 profile_dir: profiles/ver0
 headless: true

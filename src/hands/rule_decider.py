@@ -22,19 +22,26 @@ def _as_list(v):
     return v if isinstance(v, list) else [v]
 
 
-def _match_element(page, spec: dict):
+def _visit_key(e) -> str:
+    """“点过没有”按链接地址判断；没有地址的元素按 角色 + 名字。"""
+    return e.href or f"{e.role}:{e.name}"
+
+
+def _match_element(page, spec: dict, visited: set | None = None):
     """按条件找元素：默认返回第一个满足的；largest: true 时返回满足条件里面积最大的。"""
     if spec.get("largest"):
-        found = list(_iter_matches(page, spec))
+        found = list(_iter_matches(page, spec, visited))
         return max(found, key=lambda e: e.box.width * e.box.height) if found else None
-    return next(_iter_matches(page, spec), None)
+    return next(_iter_matches(page, spec, visited), None)
 
 
-def _iter_matches(page, spec: dict):
+def _iter_matches(page, spec: dict, visited: set | None = None):
     roles = _as_list(spec["role"]) if "role" in spec else None
     for e in page.elements:
         if not e.visible:
             continue
+        if spec.get("not_visited") and visited is not None and _visit_key(e) in visited:
+            continue                       # 本次用例里已经点过（click / open_tab）的链接不再选
         if roles is not None and e.role not in roles:
             continue
         if "name_contains" in spec and spec["name_contains"].lower() not in (e.name or "").lower():
@@ -80,14 +87,15 @@ def _c_text_contains(inp, v, ctx): return all(x.lower() in inp.page.body_text.lo
 
 
 def _c_element(inp, v, ctx):
-    e = _match_element(inp.page, v)
+    e = _match_element(inp.page, v, ctx.get("visited"))
     if e is not None:
         ctx["match"] = e.id
+        ctx["match_el"] = e
         return True
     return False
 
 
-def _c_no_element(inp, v, ctx): return _match_element(inp.page, v) is None
+def _c_no_element(inp, v, ctx): return _match_element(inp.page, v, ctx.get("visited")) is None
 def _c_has_child_summary(inp, v, ctx): return bool(inp.task.child_summaries) == bool(v)
 def _c_no_child_with_goal(inp, v, ctx): return all(c["goal"] != v for c in inp.task.child_summaries)
 
@@ -158,6 +166,7 @@ class RuleDecider:
                     raise ValueError(f"unknown condition: {name}")
         self.rules = rules
         self.default = default
+        self.visited: set[str] = set()          # 本次用例里 click / open_tab 过的元素（见 not_visited 条件）
 
     @classmethod
     def from_case(cls, case) -> "RuleDecider":
@@ -169,8 +178,10 @@ class RuleDecider:
 
     async def decide(self, inp: DecisionInput) -> str:
         for i, r in enumerate(self.rules):
-            ctx: dict = {}
+            ctx: dict = {"visited": self.visited}
             if all(CONDITIONS[k](inp, v, ctx) for k, v in r.when.items()):
+                if r.do.get("tool") in ("click", "open_tab") and ctx.get("match_el") is not None:
+                    self.visited.add(_visit_key(ctx["match_el"]))
                 return self._out(f"rule#{i} matched", r.do, inp, ctx)
         if self.default is not None:
             return self._out("default rule", self.default.do, inp, {})

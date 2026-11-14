@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F16 换行的行内链接</title></head>
+<body style="margin:0;padding:40px;font:16px/24px sans-serif">
+  <!-- 链接从第一行末尾开始、折到第二行开头：外接矩形横跨两行全宽，中心落在非链接文字上（仿 Google 结果“网址 + 标题”两行的链接） -->
+  <div style="width:320px">
+    这是一段普通文字，用来把链接挤到行尾。<a id="lk" href="#ok" onclick="document.getElementById('result').textContent='clicked'; return false;">换行的链接后半</a>这里又是普通文字，点到这里不算。
+  </div>
+  <p id="result">未点击</p>
+</body></html>

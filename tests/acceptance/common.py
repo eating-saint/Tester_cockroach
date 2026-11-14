@@ -8,9 +8,10 @@ import sys
 import time
 from pathlib import Path
 
-from hands.browser import BrowserManager, profile_chrome_pids, profile_chrome_ws_mb
+from hands.browser import profile_chrome_pids, profile_chrome_ws_mb
 from hands.config import PROJECT_ROOT, load_config
 from hands.dom import DomReader
+from hands.driver import create_browser
 from hands.recorder import RunRecorder
 from hands.runner import CaseRunner, load_case
 
@@ -22,18 +23,22 @@ FIXTURES = PROJECT_ROOT / "fixtures"
 
 
 class Ctx:
-    def __init__(self, headed: bool = False, rounds: int = 50, humanize: bool = False, seed: int | None = None):
+    def __init__(self, headed: bool = False, rounds: int = 50, humanize: bool = False, seed: int | None = None,
+                 driver: str | None = None):
         from hands.humanize import apply_cli
 
-        self.config = load_config(headless=False if headed else None)
+        self.config = load_config(headless=False if headed else None, driver=driver)
+        if self.config.driver != "cdp":
+            create_browser(self.config)            # 提前检查依赖：未安装时在启动夹具服务前就报错
         self.config.humanize = apply_cli(self.config.humanize, humanize, seed)
         self.rounds = rounds
         self.base = f"http://127.0.0.1:{PORT}"
         self.xbase = f"http://localhost:{PORT}"
         self.server = fixture_server.start(PORT)
-        self.run_root = self.config.runs_dir / (time.strftime("%Y%m%d-%H%M%S") + "-acceptance")
+        suffix = "" if self.config.driver == "cdp" else f"-{self.config.driver}"
+        self.run_root = self.config.runs_dir / (time.strftime("%Y%m%d-%H%M%S") + "-acceptance" + suffix)
         self.run_root.mkdir(parents=True, exist_ok=True)
-        self.browser: BrowserManager | None = None
+        self.browser = None
 
     def url(self, path: str) -> str:
         return f"{self.base}/{path.lstrip('/')}"
@@ -43,12 +48,12 @@ class Ctx:
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
-    async def get_browser(self) -> BrowserManager:
+    async def get_browser(self):
         if self.browser is None or not self.browser.is_alive():
             if self.browser is not None:
                 await self.browser.restart()
             else:
-                self.browser = BrowserManager(self.config)
+                self.browser = create_browser(self.config)
                 await self.browser.start()
         if self.browser.page is None:
             await self.browser.new_page()

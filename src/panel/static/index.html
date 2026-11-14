@@ -19,6 +19,13 @@
     <label class="seg"><input type="radio" name="mode" value="headless" checked> 无界面</label>
     <label class="seg"><input type="radio" name="mode" value="headed"> 有界面</label>
     <button id="bFront" title="把 Chrome 窗口调到前台">调到前台</button>
+    <span class="sep"></span>
+    <label class="muted" title="浏览器驱动：切换会重启浏览器；有任务运行时不能切换">驱动
+      <select id="driverSel">
+        <option value="cdp">CDP</option>
+        <option value="playwright">Playwright</option>
+      </select>
+    </label>
     <span class="muted">崩溃 <b id="crashes">0</b> 次</span>
     <span class="spacer"></span>
     <span id="running" class="running"></span>

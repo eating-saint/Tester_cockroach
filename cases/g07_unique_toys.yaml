@@ -1,0 +1,65 @@
+name: g07_unique_toys
+start_url: https://www.google.com/
+root_goal: 在 Google 搜索“unique toys”，前三页搜索结果里，标题或摘要含 megatron / galvatron / optimus 的结果逐个点开查看并读出相关内容；翻页用新标签页打开，三页搜索结果各留一个标签页
+root_done_when: 第 3 页搜索结果检查完毕
+inputs: {query: "unique toys"}
+limits: {max_depth: 2, max_steps: 100}
+timeout_s: 3600
+rules:
+  # ---------------- 母任务（root）：搜索、按页建子任务、翻页 ----------------
+  - when: {node_depth: 0, steps_used: 0, element: {role: [combobox, searchbox, textbox], name_contains: "搜索", enabled: true}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.query}}"}}
+  - when: {node_depth: 0, last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  - when: {node_depth: 0, url_contains: ["google.", "/search"], url_not_contains: "start=", no_child_with_goal: 第1页搜索结果}
+    do: {tool: create_child, arguments: {goal: 第1页搜索结果, done_when: 本页含关键词的结果都已点开查看}}
+  - when: {node_depth: 0, url_contains: ["google.", "/search", "start=10"], no_child_with_goal: 第2页搜索结果}
+    do: {tool: create_child, arguments: {goal: 第2页搜索结果, done_when: 本页含关键词的结果都已点开查看}}
+  - when: {node_depth: 0, url_contains: ["google.", "/search", "start=20"], no_child_with_goal: 第3页搜索结果}
+    do: {tool: create_child, arguments: {goal: 第3页搜索结果, done_when: 本页含关键词的结果都已点开查看}}
+  - when: {node_depth: 0, url_contains: ["google.", "/search", "start=20"]}
+    do: {tool: complete, arguments: {summary: 前三页搜索结果都已检查完毕；三个标签页分别是第 1、2、3 页搜索结果}}
+  # 本页查完：在新标签页打开“下一页”并切过去，当前这页搜索结果留在原标签页
+  - when: {node_depth: 0, url_contains: ["google.", "/search"], element: {role: link, name_contains: "下一页", not_visited: true}}
+    do: {tool: open_tab, arguments: {element: "{{match}}", switch: true}}
+
+  # ---------------- 子任务（第 N 页搜索结果）：逐条找含关键词、没点过的结果 ----------------
+  - when: {node_depth: 1, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_not_contains: ["google.", "/search?"], not_visited: true}}
+    do: {tool: create_child, arguments: {goal: 查看结果, done_when: 读出页面里含 megatron / galvatron / optimus 的内容}}
+  - when: {node_depth: 1, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_contains: "/url?", not_visited: true}}
+    do: {tool: create_child, arguments: {goal: 查看结果, done_when: 读出页面里含 megatron / galvatron / optimus 的内容}}
+  # Google 现在的结果链接是 https://www.google.com/goto?url=… 跳转地址
+  - when: {node_depth: 1, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_contains: "/goto?", not_visited: true}}
+    do: {tool: create_child, arguments: {goal: 查看结果, done_when: 读出页面里含 megatron / galvatron / optimus 的内容}}
+  # 已滑到底（上一次滚轮没滚动）：本页完成
+  - when: {node_depth: 1, last_tool: scroll, last_effective: false}
+    do: {tool: complete, arguments: {summary: 本页含关键词的结果都已点开查看（详见下面各条“查看结果”）}}
+  - when: {node_depth: 1}
+    do: {tool: scroll, arguments: {direction: down, pixels: 600}}
+
+  # ---------------- 孙任务（查看结果）：点进去、滚动、读出关键词内容、后退 ----------------
+  - when: {node_depth: 2, url_contains: "google.", steps_used: 0, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_not_contains: ["google.", "/search?"], not_visited: true}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {node_depth: 2, url_contains: "google.", steps_used: 0, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_contains: "/url?", not_visited: true}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {node_depth: 2, url_contains: "google.", steps_used: 0, element: {role: link, in_viewport: true, context_contains: [megatron, galvatron, optimus], href_contains: "/goto?", not_visited: true}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {node_depth: 2, url_contains: "google.", read_count: 0}
+    do: {tool: fail, arguments: {reason: 点击后没有离开搜索结果页（结果链接未生效或已不在屏幕上）}}
+  - when: {node_depth: 2, url_not_contains: "google.", last_tool: click}
+    do: {tool: scroll, arguments: {direction: down, pixels: 600}}
+  - when: {node_depth: 2, url_not_contains: "google.", read_count: 0, text_contains: megatron}
+    do: {tool: read_text, arguments: {contains: megatron}}
+  - when: {node_depth: 2, url_not_contains: "google.", read_count: 0, text_contains: galvatron}
+    do: {tool: read_text, arguments: {contains: galvatron}}
+  - when: {node_depth: 2, url_not_contains: "google.", read_count: 0, text_contains: optimus}
+    do: {tool: read_text, arguments: {contains: optimus}}
+  - when: {node_depth: 2, url_not_contains: "google.", read_count: 0}
+    do: {tool: read_text, arguments: {contains: unique}}
+  - when: {node_depth: 2, url_not_contains: "google.", read_count: {min: 1}}
+    do: {tool: back, arguments: {}}
+  - when: {node_depth: 2, url_contains: "google.", read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则}}}
+expect:
+  root_status: done

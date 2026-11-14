@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import time
 from dataclasses import dataclass, field
 
 from .cdp import ALL, CDPConnection, CDPError, CDPSession, attach_page
 from .config import Config
+from .geometry import Box, quad_to_box
 from .monitor import Monitor
 from .status import STATUS
 
@@ -33,11 +35,65 @@ class FrameSession:
         return 0 if self.parent is None else self.parent.depth + 1
 
 
+async def wait_quiet(monitor: Monitor, loaded: asyncio.Event, config: Config, timeout: float,
+                     setup_tasks=()) -> WaitResult:
+    """等待策略（两种驱动共用）：等 load，再等"网络安静"满 quiet_ms；超时返回未完成的请求地址。"""
+    start = time.monotonic()
+    deadline = start + timeout
+    quiet = config.quiet_ms / 1000
+
+    def result(status):
+        return WaitResult(status, int((time.monotonic() - start) * 1000),
+                          monitor.pending_urls() if status != "ok" else [])
+
+    if not loaded.is_set():
+        STATUS.set_wait("load", timeout)
+        try:
+            await asyncio.wait_for(loaded.wait(), max(0.0, deadline - time.monotonic()))
+        except asyncio.TimeoutError:
+            return result("timeout")
+    if setup_tasks:
+        await asyncio.wait(list(setup_tasks), timeout=max(0.0, deadline - time.monotonic()))
+    STATUS.set_wait("network_quiet", timeout)
+    STATUS.wait.since = start
+    while True:
+        now = time.monotonic()
+        pending = monitor.blocking_count()
+        # 安静时间至少从本次等待开始算：按键/点击触发的跳转要稍后才发出请求
+        quiet_for = now - max(monitor.quiet_since(), start)
+        if pending == 0 and quiet_for >= quiet and loaded.is_set():
+            return result("ok")
+        remaining = deadline - now
+        if remaining <= 0:
+            return result("timeout")
+        if not loaded.is_set():
+            try:
+                await asyncio.wait_for(loaded.wait(), remaining)
+            except asyncio.TimeoutError:
+                return result("timeout")
+            continue
+        limit = remaining if pending else min(quiet - quiet_for, remaining)
+        release = monitor.next_release_in()   # 到点时后台长连接不再阻塞，需要醒来重算
+        if release is not None:
+            limit = min(limit, release + 0.01)
+        await monitor.wait_change(limit)
+
+
+# 支持的按键：名字 → (key/code, windowsVirtualKeyCode, 产生的文字)；名字同时也是 Playwright 的键名
+KEYS = {
+    "Enter": ("Enter", 13, "\r"), "Tab": ("Tab", 9, None), "Escape": ("Escape", 27, None),
+    "Backspace": ("Backspace", 8, None), "ArrowDown": ("ArrowDown", 40, None),
+    "ArrowUp": ("ArrowUp", 38, None), "PageDown": ("PageDown", 34, None), "End": ("End", 35, None),
+}
+
+
 AUTO_ATTACH = {"autoAttach": True, "waitForDebuggerOnStart": True, "flatten": True,
                "filter": [{"type": "iframe"}, {"type": "page", "exclude": True}]}
 
 
 class Page:
+    driver = "cdp"
+
     def __init__(self, conn: CDPConnection, config: Config):
         self.conn = conn
         self.config = config
@@ -51,6 +107,7 @@ class Page:
         self._subs: list[tuple] = []
         self._openers: list[str] = []
         self._new_tabs: asyncio.Queue[str] = asyncio.Queue()
+        self._spawned: asyncio.Queue[str] = asyncio.Queue()   # 没有打开者关系的新标签页（open_tab 用）
         self._discover_on = False
 
     # ---------------- 会话管理 ----------------
@@ -137,8 +194,12 @@ class Page:
 
     def _on_target_created(self, p):
         info = p["targetInfo"]
-        if info.get("type") == "page" and info.get("openerId") == self.target_id:
+        if info.get("type") != "page":
+            return
+        if info.get("openerId") == self.target_id:
             self._new_tabs.put_nowait(info["targetId"])
+        else:                                   # Ctrl+点击打开的标签页没有打开者关系，单独记下供 open_tab 使用
+            self._spawned.put_nowait(info["targetId"])
 
     def detach(self):
         self.monitor.detach_all()
@@ -187,6 +248,20 @@ class Page:
         except asyncio.QueueEmpty:
             return None
 
+    def clear_spawned_tabs(self):
+        while not self._spawned.empty():
+            self._spawned.get_nowait()
+
+    def take_spawned_tab(self) -> str | None:
+        """open_tab 用：本页打开的新标签页（有打开者关系的优先），或动作期间新出现的任何标签页。"""
+        t = self.take_new_tab()
+        if t is not None:
+            return t
+        try:
+            return self._spawned.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
     async def wait_settled(self, after_navigation: bool = False, timeout: float | None = None) -> WaitResult:
         timeout = self.config.nav_timeout_s if timeout is None else timeout
         try:
@@ -195,45 +270,7 @@ class Page:
             STATUS.clear_wait()
 
     async def _wait_settled(self, timeout: float) -> WaitResult:
-        start = time.monotonic()
-        deadline = start + timeout
-        quiet = self.config.quiet_ms / 1000
-
-        def result(status):
-            return WaitResult(status, int((time.monotonic() - start) * 1000),
-                              self.monitor.pending_urls() if status != "ok" else [])
-
-        if not self._loaded.is_set():
-            STATUS.set_wait("load", timeout)
-            try:
-                await asyncio.wait_for(self._loaded.wait(), max(0.0, deadline - time.monotonic()))
-            except asyncio.TimeoutError:
-                return result("timeout")
-        if self._setup_tasks:
-            await asyncio.wait(list(self._setup_tasks), timeout=max(0.0, deadline - time.monotonic()))
-        STATUS.set_wait("network_quiet", timeout)
-        STATUS.wait.since = start
-        while True:
-            now = time.monotonic()
-            pending = self.monitor.blocking_count()
-            # 安静时间至少从本次等待开始算：按键/点击触发的跳转要稍后才发出请求
-            quiet_for = now - max(self.monitor.quiet_since(), start)
-            if pending == 0 and quiet_for >= quiet and self._loaded.is_set():
-                return result("ok")
-            remaining = deadline - now
-            if remaining <= 0:
-                return result("timeout")
-            if not self._loaded.is_set():
-                try:
-                    await asyncio.wait_for(self._loaded.wait(), remaining)
-                except asyncio.TimeoutError:
-                    return result("timeout")
-                continue
-            limit = remaining if pending else min(quiet - quiet_for, remaining)
-            release = self.monitor.next_release_in()   # 到点时后台长连接不再阻塞，需要醒来重算
-            if release is not None:
-                limit = min(limit, release + 0.01)
-            await self.monitor.wait_change(limit)
+        return await wait_quiet(self.monitor, self._loaded, self.config, timeout, self._setup_tasks)
 
     async def navigate(self, url: str, timeout: float | None = None) -> WaitResult:
         self.monitor.reset_for_navigation()
@@ -295,3 +332,117 @@ class Page:
 
     async def title(self) -> str:
         return await self.evaluate("document.title") or ""
+
+    # ---------------- 底层原语（动作、截图、页面状态通过这些方法访问浏览器） ----------------
+    async def read_dom(self):
+        from .dom import DomReader
+        return await DomReader().read(self)
+
+    async def layout(self) -> dict:
+        m = await self.session.send("Page.getLayoutMetrics")
+        lv = m.get("cssLayoutViewport", {})
+        cs = m.get("cssContentSize") or m.get("contentSize") or {}
+        return {"vw": float(lv.get("clientWidth", 800)), "vh": float(lv.get("clientHeight", 600)),
+                "scroll_x": lv.get("pageX", 0), "scroll_y": m.get("cssVisualViewport", {}).get("pageY", 0),
+                "layout_y": lv.get("pageY", 0),
+                "content_w": cs.get("width", 0), "content_h": cs.get("height", 0)}
+
+    async def locate_box(self, el) -> Box:
+        if el._ref is None:
+            raise LookupError(f"element {el.id} has no node reference")
+        fs = self.frame_of(el._ref.session_id)
+        chain = []
+        f = fs
+        while f.parent is not None:
+            chain.append(f)
+            f = f.parent
+        for child in reversed(chain):          # 先把各级 <iframe> 滚到可见
+            owner = await child.parent.session.send("DOM.getFrameOwner", {"frameId": child.frame_id})
+            await child.parent.session.send("DOM.scrollIntoViewIfNeeded", {"backendNodeId": owner["backendNodeId"]})
+        await fs.session.send("DOM.scrollIntoViewIfNeeded", {"backendNodeId": el._ref.backend_node_id})
+        await self.refresh_offsets()
+        q = await fs.session.send("DOM.getContentQuads", {"backendNodeId": el._ref.backend_node_id})
+        if not q.get("quads"):
+            raise LookupError(f"element {el.id} has no layout")
+        return quad_to_box(q["quads"][0]).offset(*fs.owner_offset)
+
+    async def node_value(self, el) -> str | None:
+        """读节点当前的 value（input / textarea）或可编辑元素的文字；读不到返回 None。只读，不改页面。"""
+        if el._ref is None:
+            return None
+        try:
+            fs = self.frame_of(el._ref.session_id)
+            obj = await fs.session.send("DOM.resolveNode", {"backendNodeId": el._ref.backend_node_id})
+            r = await fs.session.send("Runtime.callFunctionOn", {
+                "objectId": obj["object"]["objectId"], "returnByValue": True,
+                "functionDeclaration": "function(){return 'value' in this ? this.value : "
+                                       "(this.isContentEditable ? this.innerText : null)}"})
+            v = r.get("result", {}).get("value")
+            return None if v is None else str(v)
+        except Exception:
+            return None
+
+    async def mouse_move(self, x: float, y: float):
+        await self.session.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+
+    async def mouse_click(self, x: float, y: float, ctrl: bool = False):
+        s = self.session
+        mod = {"modifiers": 2} if ctrl else {}            # 2 = Ctrl：链接在新标签页打开
+        await s.send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x, "y": y, "button": "left",
+                                                  "clickCount": 1, **mod})
+        await s.send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x, "y": y, "button": "left",
+                                                  "clickCount": 1, **mod})
+
+    async def mouse_wheel(self, x: float, y: float, dy: float):
+        s = self.session
+        await s.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+        await s.send("Input.dispatchMouseEvent", {"type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": dy})
+
+    async def key_press(self, name: str):
+        key, vk, text = KEYS[name]
+        s = self.session
+        down = {"type": "keyDown" if text else "rawKeyDown", "key": key, "code": key, "windowsVirtualKeyCode": vk}
+        if text:
+            down["text"] = text
+        await s.send("Input.dispatchKeyEvent", down)
+        await s.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": key, "code": key, "windowsVirtualKeyCode": vk})
+
+    async def select_all(self):
+        s = self.session
+        await s.send("Input.dispatchKeyEvent", {"type": "rawKeyDown", "key": "a", "code": "KeyA",
+                                                "windowsVirtualKeyCode": 65, "modifiers": 2, "commands": ["selectAll"]})
+        await s.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "a", "code": "KeyA",
+                                                "windowsVirtualKeyCode": 65, "modifiers": 2})
+
+    async def insert_text(self, text: str):
+        await self.session.send("Input.insertText", {"text": text})
+
+    async def screenshot(self, full_page: bool = False) -> bytes:
+        params: dict = {"format": "png"}
+        if full_page:
+            m = await self.session.send("Page.getLayoutMetrics")
+            cs = m.get("cssContentSize") or m.get("contentSize")
+            params.update({"captureBeyondViewport": True,
+                           "clip": {"x": 0, "y": 0, "width": cs["width"], "height": cs["height"], "scale": 1}})
+        r = await self.session.send("Page.captureScreenshot", params)
+        return base64.b64decode(r["data"])
+
+    async def bring_to_front(self):
+        await self.session.send("Page.bringToFront")
+
+    async def frame_info(self, el) -> tuple[tuple[float, float], bool]:
+        """元素所在 frame 在主页面中的偏移，以及该 frame 是否运行在独立会话（跨源 iframe）中。"""
+        fs = self.frame_of(el._ref.session_id if el._ref else None)
+        return fs.owner_offset, fs.parent is not None
+
+    async def evaluate_in_frame(self, el, expression: str):
+        fs = self.frame_of(el._ref.session_id if el._ref else None)
+        return await self.evaluate(expression, fs.session)
+
+    async def panel_session(self):
+        """面板专用（推流、预览手动输入）：返回当前标签页的 CDP 会话。"""
+        return self.session
+
+    async def fresh_start(self):
+        """用例开始时调用：CDP 驱动没有需要回收的东西。"""
+        return None

@@ -37,6 +37,10 @@ class Config:
     captcha_markers: list = field(default_factory=lambda: list(DEFAULT_CAPTCHA_MARKERS))
     runs_dir: Path = Path("runs")
     humanize: dict = field(default_factory=dict)   # 鼠标轨迹与干扰项，见 humanize.py；默认全部关闭
+    driver: str = "cdp"                            # cdp = 自写原生 CDP；playwright = Playwright（可选依赖 pw）
+
+
+DRIVERS = ("cdp", "playwright")
 
 
 def find_chrome() -> str:
@@ -73,6 +77,9 @@ def load_config(path: str | os.PathLike | None = "config.yaml", **overrides) -> 
     cfg.profile_dir = _abs(cfg.profile_dir)
     cfg.runs_dir = _abs(cfg.runs_dir)
     cfg.window = tuple(cfg.window)
+    cfg.driver = str(cfg.driver or "cdp").lower()
+    if cfg.driver not in DRIVERS:
+        raise ValueError(f"未知驱动 driver={cfg.driver!r}，可选：{' / '.join(DRIVERS)}")
     if not cfg.chrome_path:
         cfg.chrome_path = find_chrome()
     return cfg

@@ -1,0 +1,4 @@
+{
+  "fixture": "F15",
+  "button": {"name": "封闭影子按钮", "result": "closed-ok"}
+}

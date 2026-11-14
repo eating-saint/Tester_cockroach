@@ -1,5 +1,6 @@
 """python -m hands run <case.yaml...> [--headed] [--config config.yaml]
-                      [--humanize | --humanize-only mouse,think,scroll_jitter] [--seed N]"""
+                      [--humanize | --humanize-only mouse,think,scroll_jitter] [--seed N]
+                      [--driver cdp|playwright]"""
 from __future__ import annotations
 
 import argparse
@@ -7,8 +8,8 @@ import asyncio
 import sys
 from pathlib import Path
 
-from .browser import BrowserManager
-from .config import PROJECT_ROOT, load_config
+from .config import DRIVERS, PROJECT_ROOT, load_config
+from .driver import DriverUnavailable, create_browser
 from .humanize import apply_cli
 from .recorder import RunRecorder
 from .runner import CaseRunner, load_case
@@ -17,8 +18,14 @@ FIXTURE_PORT = 8765
 
 
 async def run(args) -> int:
-    cfg = load_config(args.config, headless=False if args.headed else None)
+    try:
+        cfg = load_config(args.config, headless=False if args.headed else None, driver=args.driver)
+        browser = create_browser(cfg)
+    except (DriverUnavailable, ValueError) as e:
+        print(e, file=sys.stderr)
+        return 2
     cfg.humanize = apply_cli(cfg.humanize, args.humanize, args.seed, args.humanize_only)
+    print(f"驱动: {browser.driver}")
     texts = [Path(p).read_text(encoding="utf-8") for p in args.cases]
     server = None
     if any("${BASE}" in t or "${XBASE}" in t for t in texts):
@@ -27,7 +34,6 @@ async def run(args) -> int:
         server = fixture_server.start(FIXTURE_PORT)
     vars = {"BASE": f"http://127.0.0.1:{FIXTURE_PORT}", "XBASE": f"http://localhost:{FIXTURE_PORT}"}
     cases = [load_case(p, vars) for p in args.cases]
-    browser = BrowserManager(cfg)
     await browser.start()
     try:
         runner = CaseRunner(browser, cfg, RunRecorder(cfg.runs_dir, args.label))
@@ -55,6 +61,7 @@ def main():
     r.add_argument("--humanize", action="store_true", help="打开鼠标轨迹、思考时间、滚轮乱动三项")
     r.add_argument("--humanize-only", default=None, help="只打开部分，例如 mouse 或 mouse,think")
     r.add_argument("--seed", type=int, default=None, help="固定随机种子，用于重放")
+    r.add_argument("--driver", choices=DRIVERS, default=None, help="浏览器驱动，覆盖 config.yaml 的 driver")
     args = ap.parse_args()
     sys.exit(asyncio.run(run(args)))
 

@@ -149,6 +149,9 @@ class CaseRunner:
     # ---------------- 单次执行 ----------------
     async def _attempt(self, case: CaseSpec, attempt: int) -> tuple[TaskTree, int, int]:
         page = await self._page()
+        fresh = getattr(page, "fresh_start", None)      # 用例开始：驱动可借机回收资源（CDP 驱动什么都不做）
+        if fresh is not None:
+            await fresh()
         await self._respect_interval(case.start_url)
         await page.navigate(case.start_url)
         tree = TaskTree(case.root_goal, case.root_done_when, case.limits["max_depth"], case.limits["max_steps"])
@@ -196,8 +199,10 @@ class CaseRunner:
                                                      markers=self.config.captcha_markers)
                     else:
                         page = await self.handoff_fn(self.browser, state.url, sdir, self.input_fn, self.log)
+                    h_end = time.time()
                     self._handoffs.setdefault(case.name, []).append(
-                        {"start": h_start, "end": time.time(), "hit": hit, "url": state.url})
+                        {"start": h_start, "end": h_end, "hit": hit, "url": state.url})
+                    deadline += h_end - h_start      # 等人的时间不算进用例时限（F12：人工处理后继续）
                     self._handled.add(captcha.signature(state, hit))
                     executor = make_executor(page)
                     index -= 1
@@ -224,7 +229,7 @@ class CaseRunner:
                 tree.fail("invalid decision")
             else:
                 result = await self._execute(decision, state, tree, executor)
-                if decision.tool == "click" and result.ok:
+                if decision.tool in ("click", "open_tab") and result.ok:
                     clicks += 1
                 if executor.page is not page:
                     page = executor.page
@@ -272,6 +277,8 @@ class CaseRunner:
         try:
             if tool == "click":
                 return await executor.click(el(a["element"]))
+            if tool == "open_tab":
+                return await executor.open_tab(el(a["element"]), bool(a.get("switch", False)))
             if tool == "type":
                 return await executor.type(el(a["element"]), a["text"])
             if tool == "press":

@@ -114,32 +114,31 @@ class Monitor:
         self._last_change = time.monotonic()
         self._changed.set()
 
-    # 请求只按 requestId 记账：跨源 iframe 的文档请求在父会话发出、在子会话结束，requestId 相同
-    def _on_request(self, sid, p):
-        if p.get("type") in IGNORED_TYPES:
+    # ---- 记账层（与驱动无关：CDP 和 Playwright 都把事件转换后调这里） ----
+    # 请求只按 key 记账（CDP 为 requestId）：跨源 iframe 的文档请求在父会话发出、在子会话结束，requestId 相同
+    def req_started(self, key, url: str, rtype: str | None, frame_id: str | None = None, owner=None):
+        if rtype in IGNORED_TYPES:
             return
-        url = p.get("request", {}).get("url", "")
         if url.startswith(("data:", "blob:")):      # 页面内存里的数据，不走网络
             return
-        key = p["requestId"]
         if key in self._pending:  # redirect
             self._pending[key].url = url
         else:
-            self._pending[key] = RequestInfo(url=url, started_at=time.time(), frame_id=p.get("frameId"))
-            self._owner[key] = (sid, p.get("type"))
-            if p.get("type") != "Document" and self.PHASES.index(self.lifecycle) >= self.PHASES.index("load"):
+            self._pending[key] = RequestInfo(url=url, started_at=time.time(), frame_id=frame_id)
+            self._owner[key] = (owner, rtype)
+            if rtype != "Document" and self.PHASES.index(self.lifecycle) >= self.PHASES.index("load"):
                 self._late[key] = time.monotonic()
-            elif p.get("type") in (None, "Other"):
-                # worker 脚本这类：结束事件常发到 worker 自己的会话，页面会话里收不到；挂满 LONG_POLL_S 就不再阻塞
+            elif rtype in (None, "Other", "Script"):
+                # worker 脚本这类：结束事件常发到 worker 自己的会话，页面会话里收不到；挂满 LONG_POLL_S 就不再阻塞。
+                # Script 也算（Google 的 recaptcha/enterprise/webworker.js）：同文档改网址后生命周期不再到 load，
+                # 不能等 load 再计时；真正拖住页面的脚本会推迟 load，等待逻辑先等 load，不受影响
+                # 页面自己的 fetch / XHR 不在此列，照旧阻塞到超时（T07）
                 self._late[key] = time.monotonic()
         self._touch()
 
-    def _on_response(self, sid, p):
-        status = p.get("response", {}).get("status")
-        key = p["requestId"]
+    def req_response(self, key, status: int | None, url: str = "", frame_id: str | None = None):
         if status is not None and status >= 400 and key not in self._failed_keys:
-            url = p["response"].get("url", "")
-            self._failed.append(RequestInfo(url=url, started_at=time.time(), frame_id=p.get("frameId"), status=status))
+            self._failed.append(RequestInfo(url=url, started_at=time.time(), frame_id=frame_id, status=status))
             self._failed_keys.add(key)
         if key in self._pending:
             self._pending[key].status = status
@@ -147,23 +146,45 @@ class Monitor:
             if self._owner.get(key, (None, None))[1] != "Document" and key not in self._late:
                 self._late[key] = time.monotonic()
 
+    def req_finished(self, key):
+        if self._drop(key) is not None:
+            self._touch()
+
+    def req_failed(self, key, error_text: str | None):
+        info = self._drop(key)
+        if key not in self._failed_keys and info is not None:
+            info.error_text = error_text
+            self._failed.append(info)
+            self._failed_keys.add(key)
+        self._touch()
+
+    def console_error(self, entry: ConsoleEntry):
+        self._console.append(entry)
+
+    def set_lifecycle(self, name: str):
+        if name == "init":
+            self.lifecycle = "init"
+        elif name in self.PHASES and self.PHASES.index(name) > self.PHASES.index(self.lifecycle):
+            self.lifecycle = name
+
     def _drop(self, key) -> RequestInfo | None:
         self._owner.pop(key, None)
         self._late.pop(key, None)
         return self._pending.pop(key, None)
 
+    # ---- CDP 事件层：解析参数后调记账层 ----
+    def _on_request(self, sid, p):
+        self.req_started(p["requestId"], p.get("request", {}).get("url", ""), p.get("type"), p.get("frameId"), sid)
+
+    def _on_response(self, sid, p):
+        r = p.get("response", {})
+        self.req_response(p["requestId"], r.get("status"), r.get("url", ""), p.get("frameId"))
+
     def _on_finished(self, sid, p):
-        if self._drop(p["requestId"]) is not None:
-            self._touch()
+        self.req_finished(p["requestId"])
 
     def _on_failed(self, sid, p):
-        key = p["requestId"]
-        info = self._drop(key)
-        if key not in self._failed_keys and info is not None:
-            info.error_text = p.get("errorText")
-            self._failed.append(info)
-            self._failed_keys.add(key)
-        self._touch()
+        self.req_failed(p["requestId"], p.get("errorText"))
 
     def _on_console(self, p):
         if p.get("type") not in ("error", "assert"):
@@ -171,28 +192,24 @@ class Monitor:
         parts = []
         for a in p.get("args", []):
             parts.append(str(a.get("value", a.get("description", ""))))
-        self._console.append(ConsoleEntry("console", "error", " ".join(parts)))
+        self.console_error(ConsoleEntry("console", "error", " ".join(parts)))
 
     def _on_exception(self, p):
         d = p.get("exceptionDetails", {})
         text = d.get("exception", {}).get("description") or d.get("text", "")
-        self._console.append(ConsoleEntry("exception", "error", text, d.get("url")))
+        self.console_error(ConsoleEntry("exception", "error", text, d.get("url")))
 
     def _on_log(self, p):
         e = p.get("entry", {})
         if e.get("level") == "error":
-            self._console.append(ConsoleEntry(e.get("source", "log"), "error", e.get("text", ""), e.get("url")))
+            self.console_error(ConsoleEntry(e.get("source", "log"), "error", e.get("text", ""), e.get("url")))
 
     PHASES = ["init", "DOMContentLoaded", "load", "networkAlmostIdle", "networkIdle"]
 
     def _on_lifecycle(self, p):
         if self.main_frame_id is not None and p.get("frameId") != self.main_frame_id:
             return
-        name = p.get("name")
-        if name == "init":
-            self.lifecycle = "init"
-        elif name in self.PHASES and self.PHASES.index(name) > self.PHASES.index(self.lifecycle):
-            self.lifecycle = name
+        self.set_lifecycle(p.get("name"))
 
     # ---- 查询 ----
     def pending_count(self) -> int:

@@ -21,6 +21,10 @@ def detect(state, markers: list[str]) -> str | None:
     for e in state.elements:
         if e.tag.lower() != "iframe":
             continue
+        # 不可见 / 0 尺寸的 iframe（如广告带进来的 reCAPTCHA 后台框架 recaptcha/api2/aframe）不是要人处理的验证框
+        box = getattr(e, "box", None)
+        if not getattr(e, "visible", True) or (box is not None and box.width * box.height <= 0):
+            continue
         hay = f"{e.name} {e.href or ''}".lower()
         for m in ms:
             if m in hay:

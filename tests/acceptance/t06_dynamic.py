@@ -10,7 +10,8 @@ def static_sleep_check() -> list[str]:
     """等待/动作代码中不得出现固定 sleep；条件轮询行需标注 condition-poll。
     humanize.py 里的停顿是有意的节奏控制（轨迹点间隔、思考时间），不是"等页面"，需标注 humanize-pacing。"""
     bad = []
-    for f in ("page.py", "actions.py", "monitor.py", "pagestate.py", "dom.py", "humanize.py"):
+    for f in ("page.py", "actions.py", "monitor.py", "pagestate.py", "dom.py", "humanize.py",
+              "pw/page.py", "pw/dom.py"):
         for n, line in enumerate((PROJECT_ROOT / "src" / "hands" / f).read_text(encoding="utf-8").splitlines(), 1):
             if (re.search(r"\b(asyncio\.sleep|time\.sleep)\(", line) and "condition-poll" not in line
                     and not (f == "humanize.py" and "humanize-pacing" in line)):

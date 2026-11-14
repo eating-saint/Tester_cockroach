@@ -171,6 +171,9 @@ class DomReader:
     async def read(self, page) -> tuple[list[Element], str]:
         from .cdp import CDPError
 
+        if getattr(page, "driver", "cdp") != "cdp":      # 其他驱动有自己的读取实现
+            return await page.read_dom()
+
         metrics = await page.session.send("Page.getLayoutMetrics")
         vp = metrics.get("cssLayoutViewport", {})
         viewport = Box(0, 0, vp.get("clientWidth", 0), vp.get("clientHeight", 0))

@@ -78,6 +78,8 @@ def kill_tree(pid: int):
 
 
 class BrowserManager:
+    driver = "cdp"
+
     def __init__(self, config: Config):
         self.config = config
         self.headless = config.headless
