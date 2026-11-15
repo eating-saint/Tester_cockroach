@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F17 小馆外卖</title>
+<link rel="stylesheet" href="shop.css"><script src="shop.js"></script></head>
+<body>
+<header class="top">
+  <span class="logo">小馆外卖</span>
+  <nav aria-label="主导航"><a href="index.html">首页</a><a href="index.html?cat=小吃">小吃专区</a><a href="cart.html">购物车 (<span id="cart-count">0</span>)</a></nav>
+  <form id="search" action="index.html" method="get" role="search">
+    <input type="search" name="q" id="q" aria-label="搜索商品" placeholder="搜索商品">
+    <button type="submit">搜索</button>
+  </form>
+</header>
+<div class="wrap">
+  <aside class="side" aria-label="分类">
+    <a href="index.html" data-cat="">全部</a><a href="index.html?cat=面食" data-cat="面食">面食</a>
+    <a href="index.html?cat=小吃" data-cat="小吃">小吃</a><a href="index.html?cat=饮品" data-cat="饮品">饮品</a>
+    <a href="index.html?cat=甜点" data-cat="甜点">甜点</a>
+  </aside>
+  <main>
+    <h1 id="heading">今日推荐</h1>
+    <div class="grid" id="grid"></div>
+    <nav class="pager" id="pager" aria-label="分页"></nav>
+  </main>
+</div>
+<footer>小馆外卖 · 本页是本地测试夹具 · 关于我们 · 帮助中心</footer>
+<script>
+(function () {
+  const sp = new URLSearchParams(location.search);
+  const q = (sp.get("q") || "").trim().toLowerCase();
+  const cat = sp.get("cat") || "";
+  const page = Math.max(1, parseInt(sp.get("page") || "1", 10));
+  const size = Math.max(1, parseInt(sp.get("size") || String(PAGE_SIZE), 10));   // ?size=24：一页显示全部，页面变长
+  document.getElementById("q").value = sp.get("q") || "";
+  document.querySelectorAll("aside.side a").forEach(a => { if (a.dataset.cat === cat) a.classList.add("on"); });
+  let list = PRODUCTS.filter(p => (!q || p.name.toLowerCase().includes(q)) && (!cat || p.cat === cat));
+  if (q) document.getElementById("heading").textContent = `“${sp.get("q")}”的搜索结果（${list.length} 个）`;
+  else if (cat) document.getElementById("heading").textContent = cat;
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const shown = list.slice((page - 1) * size, page * size);
+  document.getElementById("grid").innerHTML = shown.length ? shown.map(card).join("") : `<div class="empty">没有找到相关商品</div>`;
+  if (pages > 1) {
+    const base = new URLSearchParams(sp); const links = [];
+    for (let i = 1; i <= pages; i++) { base.set("page", i); links.push(`<a href="index.html?${base}" class="${i === page ? "on" : ""}">${i}</a>`); }
+    if (page < pages) { base.set("page", page + 1); links.push(`<a href="index.html?${base}">下一页</a>`); }
+    document.getElementById("pager").innerHTML = links.join("");
+  }
+  maybePopup();
+})();
+</script>
+</body></html>

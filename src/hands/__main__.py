@@ -1,6 +1,6 @@
 """python -m hands run <case.yaml...> [--headed] [--config config.yaml]
                       [--humanize | --humanize-only mouse,think,scroll_jitter] [--seed N]
-                      [--driver cdp|playwright]"""
+                      [--driver cdp|playwright] [--decision rule|vlm]"""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from .config import DRIVERS, PROJECT_ROOT, load_config
+from .config import DECISIONS, DRIVERS, PROJECT_ROOT, load_config
 from .driver import DriverUnavailable, create_browser
 from .humanize import apply_cli
 from .recorder import RunRecorder
@@ -17,15 +17,29 @@ from .runner import CaseRunner, load_case
 FIXTURE_PORT = 8765
 
 
+def vlm_model(cfg) -> str:
+    from .config import vlm_settings
+    return str(vlm_settings(cfg)["model"])
+
+
 async def run(args) -> int:
     try:
-        cfg = load_config(args.config, headless=False if args.headed else None, driver=args.driver)
+        cfg = load_config(args.config, headless=False if args.headed else None, driver=args.driver,
+                          decision=args.decision)
         browser = create_browser(cfg)
     except (DriverUnavailable, ValueError) as e:
         print(e, file=sys.stderr)
         return 2
+    if cfg.decision == "vlm":                    # 启动浏览器之前先确认模型服务可用（ver1 F1）
+        from .vlm.client import ModelUnavailable, OllamaClient
+        from .config import vlm_settings
+        try:
+            await OllamaClient(vlm_settings(cfg)).check()
+        except ModelUnavailable as e:
+            print(f"[模型不可用] {e}", file=sys.stderr)
+            return 2
     cfg.humanize = apply_cli(cfg.humanize, args.humanize, args.seed, args.humanize_only)
-    print(f"驱动: {browser.driver}")
+    print(f"驱动: {browser.driver}    决策方式: {'视觉大模型 ' + vlm_model(cfg) if cfg.decision == 'vlm' else '规则决策'}")
     texts = [Path(p).read_text(encoding="utf-8") for p in args.cases]
     server = None
     if any("${BASE}" in t or "${XBASE}" in t for t in texts):
@@ -62,6 +76,8 @@ def main():
     r.add_argument("--humanize-only", default=None, help="只打开部分，例如 mouse 或 mouse,think")
     r.add_argument("--seed", type=int, default=None, help="固定随机种子，用于重放")
     r.add_argument("--driver", choices=DRIVERS, default=None, help="浏览器驱动，覆盖 config.yaml 的 driver")
+    r.add_argument("--decision", choices=DECISIONS, default=None,
+                   help="决策方式：rule = 规则决策；vlm = 视觉大模型（需本机 Ollama），覆盖 config.yaml 的 decision")
     args = ap.parse_args()
     sys.exit(asyncio.run(run(args)))
 

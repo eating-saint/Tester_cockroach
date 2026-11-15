@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="panel-token" content="{{TOKEN}}">
+<title>人眼比对</title>
+<link rel="stylesheet" href="/static/compare.css">
+</head>
+<body>
+<header id="top">
+  <a href="/">← 返回控制面板</a>
+  <strong>人眼比对</strong>
+  <label>比对集 <select id="setSel"></select></label>
+  <button id="btnCapture" type="button">采集截图</button>
+  <label>模型 <input id="modelName" type="text" placeholder="留空 = 配置里的模型" size="14"></label>
+  <button id="btnModel" type="button">让模型作答</button>
+  <button id="btnReport" type="button">查看报告</button>
+  <span id="jobLine" class="muted"></span>
+</header>
+<main id="work">
+  <section id="pages">
+    <h3>页面</h3>
+    <ol id="pageList"></ol>
+    <p class="muted small">人和模型看的是采集时存下的同一张截图。比对时模型只看图，不给它元素清单。</p>
+  </section>
+  <section id="imgCol">
+    <div id="imgHead"><button id="prev" type="button">上一页</button> <span id="pageTitle"></span> <button id="next" type="button">下一页</button> <button id="zoom" type="button" title="看不清框里的字时切到原尺寸">原尺寸</button></div>
+    <div id="imgWrap"><img id="shot" alt="标注截图"><div id="hl"></div></div>
+  </section>
+  <section id="qs">
+    <h3>题目</h3>
+    <div id="qList"></div>
+    <p id="saveLine" class="muted small"></p>
+  </section>
+</main>
+<section id="reportView" hidden>
+  <div id="reportHead"><button id="closeReport" type="button">关闭报告</button> <span id="reportName"></span></div>
+  <div id="reportBody"></div>
+</section>
+<script src="/static/compare.js"></script>
+</body>
+</html>

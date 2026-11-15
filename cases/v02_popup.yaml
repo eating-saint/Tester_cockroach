@@ -1,0 +1,12 @@
+# ver1 大模型决策：首页有弹窗遮挡，先关弹窗再完成任务（AC5）
+name: v02_popup
+start_url: ${BASE}/f17_shop/index.html?popup=1
+root_goal: 在这个外卖网站搜索 spicy，进入搜索结果里的第一个商品，读出它的标题
+root_done_when: 已抽取标题
+hints: [spicy, 搜索, search]
+extract_fields: [标题]
+limits: {max_depth: 2, max_steps: 20}
+timeout_s: 600
+expect:
+  root_status: done
+  extract_required: [标题]

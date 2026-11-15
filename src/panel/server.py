@@ -131,6 +131,7 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
         return h
 
     r.add_get("/", page("index.html"))
+    r.add_get("/compare", page("compare.html"))
     r.add_get("/collect", page("collect.html") if (STATIC / "collect.html").exists() else page("index.html"))
     r.add_static("/static/", STATIC, show_index=False)
 
@@ -251,6 +252,8 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
 
     async def settings_put(request):
         d = await body(request)
+        if "decision" in d and svc.jobs.busy and d["decision"] != svc.settings.effective().get("decision"):
+            return err(409, "任务运行中不能切换决策方式")
         errors = svc.settings.update(d)
         if errors:
             return err(400, "取值超出范围", errors=errors)
@@ -274,6 +277,59 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
             svc.settings.apply_now(svc.config)
         svc.push_soon()
         return await settings_get(request)
+    # ---------- 人眼比对（ver1） ----------
+    from . import compare as cmp
+
+    async def cmp_sets(request):
+        return ok(await asyncio.to_thread(cmp.list_sets))
+
+    async def cmp_capture(request):
+        d = await body(request)
+        return await guarded(_start_job("compare_capture", {"set": d.get("set") or "default"}))
+
+    async def cmp_run_model(request):
+        d = await body(request)
+        return await guarded(_start_job("compare_model", {"set": d.get("set") or "default", "model": d.get("model")}))
+
+    async def _start_job(kind, params):
+        return (await svc.jobs.start(kind, params)).to_dict()
+
+    async def cmp_page(request):
+        return await guarded(asyncio.to_thread(cmp.page_info, request.query.get("set", ""), request.query.get("page", "")))
+
+    async def cmp_answer(request):
+        d = await body(request)
+        return await guarded(asyncio.to_thread(cmp.save_answer, d.get("set", ""), d.get("page", ""), d.get("answers")))
+
+    async def cmp_report(request):
+        return await guarded(asyncio.to_thread(cmp.latest_report, request.query.get("set", "")))
+
+    async def cmp_img(request):
+        try:
+            p = cmp.image_path(request.match_info["set"], request.match_info["page"], request.match_info["file"])
+        except ValueError as e:
+            return err(400, str(e))
+        if not p.exists():
+            return err(404, "没有这张图")
+        return web.FileResponse(p)
+    r.add_get("/api/compare/sets", cmp_sets)
+    r.add_post("/api/compare/capture", cmp_capture)
+    r.add_post("/api/compare/run_model", cmp_run_model)
+    r.add_get("/api/compare/page", cmp_page)
+    r.add_post("/api/compare/answer", cmp_answer)
+    r.add_get("/api/compare/report", cmp_report)
+    r.add_get("/api/compare/img/{set}/{page}/{file}", cmp_img)
+
+    async def vlm_status(request):
+        from hands.config import vlm_settings
+        from hands.vlm.client import ModelUnavailable, OllamaClient
+        s = vlm_settings(svc.config)
+        try:
+            await OllamaClient(s).check()
+            return ok({"ok": True, "message": f"模型服务可用：{s['model']}", "model": s["model"]})
+        except ModelUnavailable as e:
+            return ok({"ok": False, "message": str(e), "model": s["model"]})
+    r.add_get("/api/vlm/status", vlm_status)
     r.add_get("/api/settings", settings_get)
     r.add_put("/api/settings", settings_put)
     r.add_post("/api/settings/save_default", settings_save)

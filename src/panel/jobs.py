@@ -13,6 +13,7 @@ from pathlib import Path
 from hands.actions import ActionExecutor
 from hands.config import DATA_ROOT
 from hands.dom import DomReader
+from hands.guard import Guard
 from hands.humanize import DIRECTION_NAMES, HumanizeConfig, Humanizer, derive_seed, direction_of, new_seed
 from hands.recorder import RunRecorder, StepRecord
 from hands.runner import CaseResult, CaseRunner, load_case
@@ -20,7 +21,8 @@ from hands.status import STATUS
 
 REJECT_TEXT = {"miss": "没点中高亮目标", "left_area": "鼠标移出了窗口", "too_slow": "超过 5 秒", "too_few": "轨迹点太少",
                "duplicate": "重复样本", "page_changed": "页面变了"}
-KIND_NAMES = {"demo": "演示", "case": "用例", "target": "指定目标", "manual": "手动", "sample_real": "真实网站采集"}
+KIND_NAMES = {"demo": "演示", "case": "用例", "target": "指定目标", "manual": "手动", "sample_real": "真实网站采集",
+              "compare_capture": "人眼比对采集", "compare_model": "人眼比对：模型作答"}
 DEMO_IDS = {"中心": "b-c", "东": "b-e", "东南": "b-se", "南": "b-s", "西南": "b-sw", "西": "b-w",
             "西北": "b-nw", "北": "b-n", "东北": "b-ne", "小按钮": "b-tiny"}
 
@@ -87,7 +89,7 @@ class JobManager:
     async def start(self, kind: str, params: dict) -> JobInfo:
         if self.busy:
             raise JobBusy(self.current.title)
-        if kind not in ("demo", "case", "target", "manual", "sample_real"):
+        if kind not in KIND_NAMES:
             raise ValueError(f"unknown job kind: {kind}")
         if kind == "sample_real":
             if getattr(self.svc.browser, "driver", self.svc.config.driver) != "cdp":
@@ -96,7 +98,8 @@ class JobManager:
                 raise ValueError("请先选择设备（鼠标 / 触控板）")
             if self.svc.browser_alive() and self.svc.browser.headless and not params.get("allow_headless"):
                 raise ValueError("请先切到有界面：真实网站采集要在真实的 Chrome 窗口里用手操作")
-        await self.svc.ensure_browser()
+        if kind != "compare_model":                  # 模型作答只用模型服务，不用浏览器
+            await self.svc.ensure_browser()
         title = KIND_NAMES[kind]
         if kind == "case":
             title += " " + Path(params.get("case", "")).stem
@@ -107,8 +110,11 @@ class JobManager:
         if kind in ("case", "demo"):
             self.tree = None
             self.steps = []
+        from . import compare as cmp
         runner = {"demo": self._demo, "case": self._case, "target": self._target, "manual": self._manual,
-                  "sample_real": self._sample_real}[kind]
+                  "sample_real": self._sample_real,
+                  "compare_capture": lambda j, p: cmp.job_capture(self, j, p),
+                  "compare_model": lambda j, p: cmp.job_model(self, j, p)}[kind]
         self._task = asyncio.create_task(self._wrap(job, runner, params))
         self.svc.push_soon()
         return job
@@ -306,7 +312,8 @@ class JobManager:
         seed = self._seed()
         h = self._humanizer(seed)
         rec = self._recorder("target")
-        ex = ActionExecutor(page, h, capture_trajectory=h.mouse_on, before_action=self.before_action)
+        ex = ActionExecutor(page, h, capture_trajectory=h.mouse_on, before_action=self.before_action,
+                            guard=Guard.from_config(getattr(self.svc.config, "guard", None)))   # ver1 兜底拦截
         t0 = time.monotonic()
         r = await ex.click(el)
         dur = int((time.monotonic() - t0) * 1000)

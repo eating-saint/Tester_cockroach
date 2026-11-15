@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import inspect
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .cdp import BrowserCrashed, CDPError
 from .status import STATUS
 from .dom import DomReader, Element
 from .geometry import Box
+from .guard import Guard
 from .page import KEYS, WaitResult
 
 
@@ -38,8 +39,9 @@ class ActionResult:
 
 
 class ActionExecutor:
-    def __init__(self, page, humanizer=None, capture_trajectory: bool = False, before_action=None):
+    def __init__(self, page, humanizer=None, capture_trajectory: bool = False, before_action=None, guard=None):
         self.page = page
+        self.guard = guard if guard is not None else Guard()   # 兜底拦截：始终启用，只能换清单，不能关闭
         self.humanizer = humanizer                  # None = 和 ver0 完全一样的直接点击、无干扰
         self.capture_trajectory = capture_trajectory
         self.before_action = before_action          # 可选钩子：每个动作开始前调用（面板用来让新设置生效）
@@ -202,7 +204,24 @@ class ActionExecutor:
         return await self.page.wait_settled(False)
 
     # ---------------- 动作 ----------------
+    # ---------------- 兜底拦截（ver1 F6） ----------------
+    def _blocked(self, hit, tool: str) -> ActionResult:
+        res = ActionResult(False, False, error=f"guard_blocked: {hit.describe()}", data={"guard": asdict(hit)})
+        STATUS.action_done({"tool": tool, "ok": False, "effective": False, "changes": [], "error": res.error,
+                            "trajectory": None, "elapsed_ms": 0})
+        return res
+
+    async def _guard(self, el: Element, tool: str) -> ActionResult | None:
+        fa = getattr(self.page, "form_action", None)
+        form_action = await fa(el) if fa is not None else None
+        hit = self.guard.check(el, form_action)
+        return self._blocked(hit, tool) if hit else None
+
     async def click(self, el: Element) -> ActionResult:
+        blocked = await self._guard(el, "click")
+        if blocked:
+            return blocked
+
         async def go():
             box = await self._locate_box(el)
             x, y, traj, png = await self._mouse_click(box)
@@ -213,6 +232,10 @@ class ActionExecutor:
     async def open_tab(self, el: Element, switch: bool = False) -> ActionResult:
         """Ctrl+点击：在新标签页打开链接，原标签页不关。switch=True 时切到新标签页继续（原页仍保留），
         否则留在原页（新标签页在后台）。"""
+        blocked = await self._guard(el, "open_tab")
+        if blocked:
+            return blocked
+
         async def go():
             box = await self._locate_box(el)
             x, y, traj, png = await self._mouse_to(box)
@@ -254,6 +277,17 @@ class ActionExecutor:
         return await self._run(go, tool="type")
 
     async def press(self, key: str) -> ActionResult:
+        if key == "Enter":                         # 回车可能提交表单：查焦点元素所在表单的提交地址
+            try:
+                fa = await self.page.evaluate(
+                    "(()=>{const a=document.activeElement;if(!a)return null;"
+                    "const f=a.form||(a.closest&&a.closest('form'));return f?f.action:null})()")
+            except Exception:
+                fa = None
+            hit = self.guard.path_hit(fa if isinstance(fa, str) else None, "form_action")
+            if hit:
+                return self._blocked(hit, "press")
+
         async def go():
             if key not in KEYS:
                 raise ValueError(f"unsupported key: {key}")

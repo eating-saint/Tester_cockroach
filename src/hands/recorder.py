@@ -21,6 +21,7 @@ class StepRecord:
     retries: int
     action_result: dict
     durations_ms: dict = field(default_factory=dict)
+    target: dict | None = None        # ver1：被操作元素的稳定特征（以后固化成脚本回放用）
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,7 +67,10 @@ class RunRecorder:
                 from .screenshot import draw_trajectory
                 (d / "trajectory.png").write_bytes(draw_trajectory(trajectory_png, traj, dpr))
         _dump(d / "decision.json", {"raw": rec.decision_raw, "decision": rec.decision, "retries": rec.retries})
-        _dump(d / "action.json", {"result": rec.action_result, "durations_ms": rec.durations_ms})
+        action = {"result": rec.action_result, "durations_ms": rec.durations_ms}
+        if rec.target is not None:
+            action["target"] = rec.target
+        _dump(d / "action.json", action)
         _dump(d / "step.json", rec.to_dict())
         self.steps.setdefault(case, []).append(rec)
 
@@ -89,6 +93,12 @@ class RunRecorder:
                 fmt = lambda t: time.strftime("%H:%M:%S", time.localtime(t))  # noqa: E731
                 rows.append(f"<tr><td></td><td colspan=5>人工介入：{fmt(h['start'])} – {fmt(h['end'])}"
                             f"（{h['end'] - h['start']:.1f}s），命中标记 {e(str(h.get('hit')))}</td></tr>")
+            if getattr(r, "decision", "rule") == "vlm":
+                rows.append("<tr><td></td><td colspan=5>决策方式：视觉大模型</td></tr>")
+            ex = getattr(r, "extractions", None) or []
+            if ex:
+                cells = "；".join(f"{x['field']} = {x['value']}（{'有依据' if x['grounded'] else '无依据'}）" for x in ex)
+                rows.append(f"<tr><td></td><td colspan=5>抽取：{e(cells)}</td></tr>")
             items = []
             for s in self.steps.get(r.name, []):
                 d = s.decision or {}
@@ -98,6 +108,10 @@ class RunRecorder:
                 tdir = self.root / r.name / f"step_{s.index:03d}"
                 if (tdir / "trajectory.png").exists():
                     link += ' <a href="%s">轨迹</a>' % e(f"{r.name}/step_{s.index:03d}/trajectory.png")
+                if (tdir / "vlm" / "annotated.png").exists():
+                    link += ' <a href="%s">标注图</a>' % e(f"{r.name}/step_{s.index:03d}/vlm/annotated.png")
+                if (tdir / "vlm" / "response.json").exists():
+                    link += ' <a href="%s">模型回答</a>' % e(f"{r.name}/step_{s.index:03d}/vlm/response.json")
                 dist = ar.get("disturbances") or []
                 if dist:
                     link += " " + e("、".join("思考 %dms" % x["ms"] if x["kind"] == "think"

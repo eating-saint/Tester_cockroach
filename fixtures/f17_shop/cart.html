@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F17 购物车</title>
+<link rel="stylesheet" href="shop.css"><script src="shop.js"></script></head>
+<body>
+<header class="top">
+  <span class="logo">小馆外卖</span>
+  <nav aria-label="主导航"><a href="index.html">首页</a></nav>
+</header>
+<div class="wrap"><main>
+  <section class="detail">
+    <h1>购物车</h1>
+    <div class="row">Spicy Ramen × 1　$12.99</div>
+    <div class="row">合计：$12.99</div>
+    <!-- 结账按钮一：按钮文字直接是下单类词 -->
+    <button id="place" type="button" onclick="order('place')">Place order</button>
+    <!-- 结账按钮二：按钮文字不含下单类词，但所在表单提交到结算地址 -->
+    <form id="checkout" action="/checkout/submit" method="post" onsubmit="event.preventDefault();order('form')">
+      <button id="cont" type="submit">继续</button>
+    </form>
+    <p id="out"></p>
+    <a href="index.html">继续逛逛</a>
+  </section>
+</main></div>
+<script>
+window.__orders = [];
+function order(kind) { window.__orders.push(kind); document.getElementById("out").textContent = "已下单（" + kind + "）"; }
+</script>
+</body></html>

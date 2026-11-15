@@ -11,7 +11,7 @@ from playwright.async_api import TimeoutError as PwTimeout
 from ..cdp import BrowserCrashed, CDPError
 from ..geometry import Box
 from ..monitor import ConsoleEntry, Monitor
-from ..page import KEYS, WaitResult, wait_quiet
+from ..page import KEYS, OCCLUDED_JS, WaitResult, wait_quiet
 from ..status import STATUS
 
 # Playwright 的 resource_type 是 CDP 类型名的小写；Monitor 按 CDP 名判断
@@ -355,6 +355,27 @@ class PwPage:
         try:
             v = await self._locator(el).evaluate(
                 "e => 'value' in e ? e.value : (e.isContentEditable ? e.innerText : null)", timeout=5000)
+        except Exception:
+            return None
+        return None if v is None else str(v)
+
+    async def occluded(self, elements) -> set[str]:
+        """中心点被别的元素挡住的元素 id（只读）。"""
+        out: set[str] = set()
+        for el in elements:
+            try:
+                if await self._locator(el).evaluate(OCCLUDED_JS, timeout=5000) is True:
+                    out.add(el.id)
+            except Exception:
+                continue
+        return out
+
+    async def form_action(self, el) -> str | None:
+        """元素所在表单的提交地址；不在表单里返回 None。只读，不改页面。"""
+        try:
+            v = await self._locator(el).evaluate(
+                "e => { const f = e.form || (e.closest && e.closest('form')); return f ? f.action : null }",
+                timeout=5000)
         except Exception:
             return None
         return None if v is None else str(v)

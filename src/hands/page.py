@@ -80,6 +80,15 @@ async def wait_quiet(monitor: Monitor, loaded: asyncio.Event, config: Config, ti
 
 
 # 支持的按键：名字 → (key/code, windowsVirtualKeyCode, 产生的文字)；名字同时也是 Playwright 的键名
+# ver1 遮挡判断：元素中心点在视口内时，问它所在文档（含 Shadow 根）"这一点最上层是谁"，
+# 不是它本身或它的子孙即算被挡。两种驱动共用这段只读脚本。
+OCCLUDED_JS = (
+    "(el) => { const r = el.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2;"
+    " if (r.width <= 0 || r.height <= 0 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;"
+    " const root = el.getRootNode(); const t = (root && root.elementFromPoint ? root : document).elementFromPoint(x, y);"
+    " return !(t && (t === el || el.contains(t))); }"
+)
+
 KEYS = {
     "Enter": ("Enter", 13, "\r"), "Tab": ("Tab", 9, None), "Escape": ("Escape", 27, None),
     "Backspace": ("Backspace", 8, None), "ArrowDown": ("ArrowDown", 40, None),
@@ -377,6 +386,40 @@ class Page:
                 "objectId": obj["object"]["objectId"], "returnByValue": True,
                 "functionDeclaration": "function(){return 'value' in this ? this.value : "
                                        "(this.isContentEditable ? this.innerText : null)}"})
+            v = r.get("result", {}).get("value")
+            return None if v is None else str(v)
+        except Exception:
+            return None
+
+    async def occluded(self, elements) -> set[str]:
+        """中心点被别的元素挡住的元素 id（只读）：在元素自己的文档里问"这一点最上层是谁"。"""
+        out: set[str] = set()
+        for el in elements:
+            if el._ref is None:
+                continue
+            try:
+                fs = self.frame_of(el._ref.session_id)
+                obj = await fs.session.send("DOM.resolveNode", {"backendNodeId": el._ref.backend_node_id})
+                r = await fs.session.send("Runtime.callFunctionOn", {
+                    "objectId": obj["object"]["objectId"], "returnByValue": True,
+                    "functionDeclaration": f"function(){{return ({OCCLUDED_JS})(this)}}"})
+                if r.get("result", {}).get("value") is True:
+                    out.add(el.id)
+            except Exception:
+                continue
+        return out
+
+    async def form_action(self, el) -> str | None:
+        """元素所在表单的提交地址；不在表单里返回 None。只读，不改页面。"""
+        if el._ref is None:
+            return None
+        try:
+            fs = self.frame_of(el._ref.session_id)
+            obj = await fs.session.send("DOM.resolveNode", {"backendNodeId": el._ref.backend_node_id})
+            r = await fs.session.send("Runtime.callFunctionOn", {
+                "objectId": obj["object"]["objectId"], "returnByValue": True,
+                "functionDeclaration": "function(){const f=this.form||(this.closest&&this.closest('form'));"
+                                       "return f?f.action:null}"})
             v = r.get("result", {}).get("value")
             return None if v is None else str(v)
         except Exception:

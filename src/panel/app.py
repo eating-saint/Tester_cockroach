@@ -25,13 +25,19 @@ def _setup_data_dir() -> Path | None:
     data.mkdir(parents=True, exist_ok=True)
     os.environ["HANDS_DATA_DIR"] = str(data)
     bundle = Path(getattr(sys, "_MEIPASS", exe_dir))
-    for name in ("config.yaml", "cases", "fixtures"):
+    for name in ("config.yaml", "cases", "fixtures", "compare"):
         src, dst = bundle / "seed" / name, data / name
-        if src.exists() and not dst.exists():
-            if src.is_dir():
-                shutil.copytree(src, dst)
-            else:
-                shutil.copyfile(src, dst)
+        if not src.exists():
+            continue
+        if src.is_dir():
+            # 逐个文件补齐：升级后新加的用例、夹具、比对集能进数据目录；已有文件（用户可能改过）不覆盖
+            for f in src.rglob("*"):
+                t = dst / f.relative_to(src)
+                if f.is_file() and not t.exists():
+                    t.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(f, t)
+        elif not dst.exists():
+            shutil.copyfile(src, dst)
     return data
 
 

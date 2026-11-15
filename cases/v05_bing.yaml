@@ -1,0 +1,12 @@
+# ver1 大模型决策：Bing 未登录端到端（AC13，人工验收；有界面运行：--headed）
+name: v05_bing
+start_url: https://www.bing.com/
+root_goal: 在 Bing 搜索“python asyncio tutorial”，进入一条搜索结果，读出该页面的标题和一段正文摘要
+root_done_when: 已抽取标题和摘要
+hints: [python asyncio tutorial, asyncio]
+extract_fields: [标题, 摘要]
+limits: {max_depth: 2, max_steps: 25}
+timeout_s: 900
+expect:
+  root_status: done
+  extract_required: [标题, 摘要]

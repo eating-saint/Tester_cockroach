@@ -1,0 +1,12 @@
+# ver1 大模型决策：仿电商夹具上 搜索 → 进入 → 抽取（AC11、AC12）
+name: v01_shop_extract
+start_url: ${BASE}/f17_shop/index.html
+root_goal: 在这个外卖网站搜索 spicy，进入搜索结果里的第一个商品，读出它的标题、价格、评分
+root_done_when: 已抽取标题、价格、评分三个字段
+hints: [spicy, 搜索, search]
+extract_fields: [标题, 价格, 评分]
+limits: {max_depth: 2, max_steps: 20}
+timeout_s: 600
+expect:
+  root_status: done
+  extract_required: [标题, 价格, 评分]

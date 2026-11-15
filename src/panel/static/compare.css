@@ -1,0 +1,30 @@
+body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #222; background: #f6f6f6; }
+#top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: #fff; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 5; }
+#top a { color: #1a4fb5; text-decoration: none; }
+button { padding: 4px 12px; cursor: pointer; }
+.muted { color: #777; } .small { font-size: 12px; } .ok { color: #080; } .bad { color: #c00; }
+#work { display: grid; grid-template-columns: 150px minmax(0, 1fr) 300px; gap: 10px; padding: 10px 12px; align-items: start; }
+#imgCol { overflow: auto; max-height: calc(100vh - 80px); }
+#imgWrap.actual #shot { max-width: none; width: auto; }
+#pages, #qs { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px 12px; }
+#pages h3, #qs h3 { margin: 4px 0 8px; font-size: 15px; }
+#pageList { padding-left: 20px; margin: 0; }
+#pageList li { cursor: pointer; padding: 2px 0; }
+#pageList li.cur { font-weight: 700; color: #1a4fb5; }
+#pageList li .st { font-size: 12px; color: #888; margin-left: 4px; }
+#imgCol { min-width: 0; }
+#imgHead { margin-bottom: 6px; display: flex; gap: 8px; align-items: center; }
+#imgWrap { position: relative; display: inline-block; max-width: 100%; border: 1px solid #ccc; background: #fff; }
+#shot { display: block; max-width: 100%; height: auto; cursor: crosshair; }
+#shot:not([src]) { display: none; }
+#imgWrap.picking #shot { outline: 3px solid #f90; }
+#hl { position: absolute; border: 3px solid #0a0; pointer-events: none; display: none; box-sizing: border-box; }
+.q { border-top: 1px solid #eee; padding: 8px 0; }
+.q .t { font-weight: 600; margin-bottom: 4px; }
+.q .ans { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.q .val { min-width: 40px; padding: 2px 6px; background: #f0f4ff; border-radius: 4px; }
+.q input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; }
+.q label.kind { display: inline-block; margin: 2px 8px 2px 0; }
+#reportView { position: fixed; inset: 48px 16px 16px; background: #fff; border: 1px solid #ccc; border-radius: 8px; overflow: auto; padding: 12px 20px; z-index: 10; box-shadow: 0 4px 24px rgba(0,0,0,.15); }
+#reportBody table { border-collapse: collapse; margin: 8px 0 16px; }
+#reportBody td, #reportBody th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }

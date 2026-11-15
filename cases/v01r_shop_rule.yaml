@@ -1,0 +1,22 @@
+# v01 的规则决策版：同一起点、同一目标，供"规则决策 vs 大模型决策"对比（AC10）
+name: v01r_shop_rule
+start_url: ${BASE}/f17_shop/index.html
+root_goal: 在这个外卖网站搜索 spicy，进入搜索结果里的第一个商品，读出它的标题、价格、评分
+root_done_when: 已读出标题、价格、评分
+inputs: {query: spicy}
+limits: {max_depth: 2, max_steps: 20}
+rules:
+  - when: {steps_used: 0, element: {role: [searchbox, textbox], name_contains: 搜索}}
+    do: {tool: type, arguments: {element: "{{match}}", text: "{{inputs.query}}"}}
+  - when: {last_tool: type}
+    do: {tool: press, arguments: {key: Enter}}
+  - when: {url_contains: "q=spicy", element: {role: link, name_contains: Spicy}}
+    do: {tool: click, arguments: {element: "{{match}}"}}
+  - when: {url_contains: item.html, read_count: 0}
+    do: {tool: read_text, arguments: {contains: 价格}}
+  - when: {url_contains: item.html, read_count: {min: 1}}
+    do: {tool: complete, arguments: {summary: "{{last_read}}"}}
+default: {do: {tool: fail, arguments: {reason: 页面状态不符合任何规则}}}
+expect:
+  root_status: done
+  summary_contains: ["$12.99"]

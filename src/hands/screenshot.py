@@ -5,7 +5,7 @@ import io
 
 from PIL import Image, ImageDraw
 
-from .geometry import css_to_image
+from .geometry import Box, css_to_image
 
 
 async def capture(page, full_page: bool = False) -> bytes:
@@ -30,6 +30,99 @@ def annotate(png: bytes, elements, dpr: float = 1.0, offset: tuple[float, float]
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
+
+
+_FONT_CACHE: dict = {}
+
+
+def _font(size: int):
+    from PIL import ImageFont
+    if size not in _FONT_CACHE:
+        f = None
+        for name in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
+            try:
+                f = ImageFont.truetype(name, size)
+                break
+            except OSError:
+                continue
+        if f is None:
+            try:
+                f = ImageFont.load_default(size=size)
+            except TypeError:                      # 旧版 Pillow 没有 size 参数
+                f = ImageFont.load_default()
+        _FONT_CACHE[size] = f
+    return _FONT_CACHE[size]
+
+
+def scale_png(png: bytes, factor: float) -> bytes:
+    """按比例缩放截图；factor >= 1 时原样返回。"""
+    if factor >= 0.999:
+        return png
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    img = img.resize((max(1, round(img.width * factor)), max(1, round(img.height * factor))), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def annotate_numbered(png: bytes, items, dpr: float = 1.0, scale: float | None = None):
+    """ver1 编号标注图：红框 + 黄底黑字编号牌，编号牌互不遮挡。
+
+    items：[(编号, Box)]，Box 为视口 CSS 像素。scale：输出图每 CSS 像素对应几个像素（None = dpr，即不缩放）。
+    返回 (PNG 字节, [(编号, 编号牌矩形)])，矩形为输出图像素坐标。
+    """
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    scale = dpr if scale is None else scale
+    factor = scale / dpr
+    if abs(factor - 1) > 1e-3:
+        img = img.resize((max(1, round(img.width * factor)), max(1, round(img.height * factor))), Image.LANCZOS)
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
+    boxes = [(no, Box(b.x * scale, b.y * scale, b.width * scale, b.height * scale)) for no, b in items]
+    for _, b in boxes:
+        draw.rectangle([b.x, b.y, b.x + b.width, b.y + b.height], outline=(230, 0, 0), width=2)
+    placed: list[tuple[int, Box]] = []
+
+    def fits(r: Box, own: int, strict: bool) -> bool:
+        if r.x < 0 or r.y < 0 or r.x + r.width > W or r.y + r.height > H:
+            return False
+        if any(r.intersects(p) for _, p in placed):
+            return False
+        # strict：也不压别的元素框——编号牌压进相邻元素的框里，看图时容易配错（比对实测：8 号读成相邻的 7 号）
+        return not strict or not any(r.intersects(ob) for i, (_, ob) in enumerate(boxes) if i != own)
+
+    for idx, (no, b) in enumerate(boxes):
+        label = str(no)
+        chosen = None
+        for strict in (True, False):
+            for size in (14, 12, 10):
+                f = _font(size)
+                l, t, r, btm = draw.textbbox((0, 0), label, font=f)
+                lw, lh = (r - l) + 4, (btm - t) + 4
+                cands = [(b.x, b.y - lh), (b.x + b.width - lw, b.y - lh), (b.x, b.y + b.height),
+                         (b.x + b.width - lw, b.y + b.height), (b.x, b.y), (b.x - lw, b.y), (b.x + b.width, b.y)]
+                for cx, cy in cands:
+                    rect = Box(cx, cy, lw, lh)
+                    if fits(rect, idx, strict):
+                        chosen = (rect, f, l, t)
+                        break
+                if chosen:
+                    break
+            if chosen:
+                break
+        if chosen is None:                          # 实在放不下：框内左上，最小字号，尽量留在图内
+            f = _font(10)
+            l, t, r, btm = draw.textbbox((0, 0), label, font=f)
+            lw, lh = (r - l) + 4, (btm - t) + 4
+            chosen = (Box(min(max(b.x, 0), W - lw), min(max(b.y, 0), H - lh), lw, lh), f, l, t)
+        rect, f, l, t = chosen
+        draw.rectangle([rect.x, rect.y, rect.x + rect.width, rect.y + rect.height], fill=(255, 230, 0),
+                       outline=(0, 0, 0), width=1)
+        draw.text((rect.x + 2 - l, rect.y + 2 - t), label, fill=(0, 0, 0), font=f)
+        placed.append((no, rect))
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue(), placed
 
 
 def draw_trajectory(png: bytes, traj: dict, dpr: float = 1.0) -> bytes:

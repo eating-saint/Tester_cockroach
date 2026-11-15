@@ -23,6 +23,7 @@ class PageState:
     monitor: MonitorState = field(default_factory=MonitorState)
     screenshot: str | None = None
     captured_at: float = field(default_factory=time.time)
+    occluded: list[str] = field(default_factory=list)    # ver1：被遮挡的元素 id（只在大模型决策时测）
 
     def element(self, eid: str) -> Element | None:
         for e in self.elements:
@@ -31,6 +32,12 @@ class PageState:
         return None
 
     def to_dict(self) -> dict:
+        d = self._base_dict()
+        if self.occluded:
+            d["occluded"] = list(self.occluded)
+        return d
+
+    def _base_dict(self) -> dict:
         return {
             "url": self.url,
             "title": self.title,

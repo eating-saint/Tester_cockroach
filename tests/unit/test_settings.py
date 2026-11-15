@@ -22,7 +22,8 @@ def test_out_of_range_rejected_and_unchanged():
     assert "humanize.mouse.overshoot_prob" in errs
     assert ls.pending == {} and ls.current == before
     assert ls.update({"humanize.think.min_ms": 900, "humanize.think.max_ms": 100})
-    assert ls.update({"decision": "vlm"})                       # 视觉大模型未接入
+    assert ls.update({"decision": "gpt"})                       # 不在可选项里
+    assert ls.update({"decision": "vlm"}) == {}                 # ver1：视觉大模型已接入，可以选
     assert ls.update({"humanize.seed": "abc"})
 
 

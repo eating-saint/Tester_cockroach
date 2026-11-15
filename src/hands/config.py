@@ -38,9 +38,34 @@ class Config:
     runs_dir: Path = Path("runs")
     humanize: dict = field(default_factory=dict)   # 鼠标轨迹与干扰项，见 humanize.py；默认全部关闭
     driver: str = "cdp"                            # cdp = 自写原生 CDP；playwright = Playwright（可选依赖 pw）
+    decision: str = "rule"                         # rule = 规则决策；vlm = 视觉大模型决策（ver1）
+    vlm: dict = field(default_factory=dict)        # 大模型设置，缺项用 VLM_DEFAULTS
+    guard: dict = field(default_factory=dict)      # 兜底拦截清单增删：add_words / remove_words / add_paths / remove_paths
 
 
 DRIVERS = ("cdp", "playwright")
+DECISIONS = ("rule", "vlm")
+
+VLM_DEFAULTS = {
+    "base_url": "http://127.0.0.1:11434",
+    "model": "qwen3.5:4b",
+    "timeout_s": 120,
+    "num_ctx": 16384,
+    "temperature": 0.2,
+    "seed": 1234,
+    "keep_alive": "10m",
+    "max_side": 1280,            # 截图缩放后的长边（像素）
+    "offscreen_top_k": 40,       # 视口外最多列出几个元素
+    "body_chars": 1500,          # 正文摘要长度
+    "redescribe_scroll": 1.0,    # 视口滚动超过几屏就重新描述
+    "redescribe_change": 0.5,    # 元素集合相似度低于它就重新描述
+    "prompts_dir": None,         # None = 用程序自带的提示词
+}
+
+
+def vlm_settings(cfg: "Config") -> dict:
+    """大模型设置：默认值合并用户在 config.yaml 里写的值。"""
+    return {**VLM_DEFAULTS, **(cfg.vlm or {})}
 
 
 def find_chrome() -> str:
@@ -80,6 +105,11 @@ def load_config(path: str | os.PathLike | None = "config.yaml", **overrides) -> 
     cfg.driver = str(cfg.driver or "cdp").lower()
     if cfg.driver not in DRIVERS:
         raise ValueError(f"未知驱动 driver={cfg.driver!r}，可选：{' / '.join(DRIVERS)}")
+    cfg.decision = str(cfg.decision or "rule").lower()
+    if cfg.decision not in DECISIONS:
+        raise ValueError(f"未知决策方式 decision={cfg.decision!r}，可选：{' / '.join(DECISIONS)}")
+    cfg.vlm = dict(cfg.vlm or {})
+    cfg.guard = dict(cfg.guard or {})
     if not cfg.chrome_path:
         cfg.chrome_path = find_chrome()
     return cfg

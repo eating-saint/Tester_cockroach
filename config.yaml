@@ -1,5 +1,6 @@
 # ver0 全局配置；不写的项使用默认值
 driver: cdp                # 浏览器驱动：cdp = 自写原生 CDP；playwright = Playwright（需 pip install -e .[pw]，用本机 Chrome）
+decision: rule             # 决策方式：rule = 规则决策；vlm = 视觉大模型决策（需本机 Ollama，见下方 vlm 段）
 chrome_path: ""            # 留空 = 自动查找
 profile_dir: profiles/ver0
 headless: true
@@ -59,3 +60,21 @@ humanize:
 collect:
   local_per_dir: 20        # 本地采集页（/collect）
   real_per_dir: 20         # 真实网站采集
+
+# 视觉大模型决策（decision: vlm 时使用；不写的项用默认值）
+# vlm:
+#   base_url: http://127.0.0.1:11434   # 本机 Ollama
+#   model: qwen3.5:4b
+#   timeout_s: 120
+#   num_ctx: 16384
+#   temperature: 0.2
+#   seed: 1234
+#   max_side: 1280                    # 截图缩放后的长边（像素）
+#   prompts_dir: null                 # 留空 = 用程序自带的提示词
+
+# 兜底拦截：动作执行前拦住下单、支付类点击，对所有决策方式生效，不能整体关闭，只能增删清单
+# guard:
+#   add_words: []                     # 追加拦截词
+#   remove_words: []                  # 去掉内置拦截词
+#   add_paths: []                     # 追加拦截网址路径
+#   remove_paths: []

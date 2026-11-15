@@ -345,7 +345,23 @@ function buildSettings() {
     f.appendChild(fs);
   }
   f.addEventListener("input", (e) => { const p = e.target.dataset.path; if (p) settingsDirty[p] = true; });
+  // ver1：选"视觉大模型"时检查模型服务，不可用就在旁边显示中文提示
+  const dsel = f.querySelector('[data-path="decision"]');
+  if (dsel) {
+    const tip = document.createElement("span"); tip.id = "vlmStatus"; tip.className = "small";
+    dsel.parentNode.appendChild(tip);
+    dsel.addEventListener("change", () => checkVlm(dsel.value));
+  }
   $("about").textContent = INFO.about;
+}
+async function checkVlm(v) {
+  const tip = $("vlmStatus"); if (!tip) return;
+  if (v !== "vlm") { tip.textContent = ""; return; }
+  tip.textContent = "检查模型服务……";
+  try {
+    const r = await api("GET", "/api/vlm/status");
+    tip.textContent = r.data.message; tip.className = "small " + (r.data.ok ? "ok" : "bad");
+  } catch (e) { tip.textContent = "检查失败：" + (e.message || e); tip.className = "small bad"; }
 }
 const CHOICE_TEXT = { rule: "规则决策", vlm: "视觉大模型", template: "参数模板", library: "真实轨迹库", mouse: "鼠标", touchpad: "触控板", mixed: "两者混合" };
 function renderSettingsState(st) {

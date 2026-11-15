@@ -13,6 +13,8 @@ datas = [
     (str(ROOT / "config.yaml"), "seed"),
     (str(ROOT / "cases"), "seed/cases"),
     (str(ROOT / "fixtures"), "seed/fixtures"),
+    (str(SRC / "hands" / "vlm" / "prompts"), "hands/vlm/prompts"),     # ver1 提示词（程序自带；可用 vlm.prompts_dir 指向副本）
+    (str(ROOT / "compare" / "sets"), "seed/compare/sets"),             # ver1 人眼比对集
 ]
 hidden = collect_submodules("aiohttp") + collect_submodules("webview") + ["webview.platforms.winforms",
                                                                           "webview.platforms.edgechromium"]

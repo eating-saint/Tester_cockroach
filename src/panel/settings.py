@@ -29,7 +29,7 @@ class SettingSpec:
 
 M, T, J = "humanize.mouse.", "humanize.think.", "humanize.scroll_jitter."
 SPECS: list[SettingSpec] = [
-    SettingSpec("decision", "enum", "决策方式", choices=["rule", "vlm"], disabled_choices=["vlm"], group="决策"),
+    SettingSpec("decision", "enum", "决策方式", choices=["rule", "vlm"], group="决策"),
     SettingSpec("humanize.seed", "seed", "种子（留空 = 每次随机）", 0, 2 ** 32 - 1, group="种子"),
     SettingSpec(M + "enabled", "bool", "鼠标轨迹", group="鼠标轨迹"),
     SettingSpec(M + "source", "enum", "轨迹来源", choices=["template", "library"], group="鼠标轨迹"),
@@ -75,7 +75,7 @@ def defaults() -> dict:
 
 def from_config(cfg) -> dict:
     hd = HumanizeConfig.from_dict(getattr(cfg, "humanize", None)).to_dict()
-    out = {"decision": "rule", "humanize.seed": hd.get("seed"), "quiet_ms": cfg.quiet_ms,
+    out = {"decision": getattr(cfg, "decision", "rule"), "humanize.seed": hd.get("seed"), "quiet_ms": cfg.quiet_ms,
            "nav_timeout_s": cfg.nav_timeout_s}
     for s in SPECS:
         if s.path.startswith("humanize.") and s.path != "humanize.seed":
@@ -186,6 +186,7 @@ class LiveSettings:
                 sub[key] = v
                 h[sec] = sub
         cfg.humanize = h
+        cfg.decision = self.current.get("decision", "rule")
         cfg.quiet_ms = int(self.current["quiet_ms"])
         cfg.nav_timeout_s = float(self.current["nav_timeout_s"])
 
@@ -195,8 +196,7 @@ class LiveSettings:
         return self.effective()
 
     def save_default(self, path) -> Path:
-        values = {k: v for k, v in self.effective().items() if k != "decision"}
-        return save_yaml_values(path, values)
+        return save_yaml_values(path, dict(self.effective()))
 
 
 # ---------------------------------------------------------------- 逐行写回 YAML（保留注释）

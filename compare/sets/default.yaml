@@ -1,0 +1,14 @@
+# 人眼比对默认比对集：本地夹具 5 页 + Bing 未登录搜索结果 5 页（spec ver1 F9、AC9）
+name: default
+seed: 20261114
+pages:
+  - {id: p01_static, url: "${BASE}/f01_static/index.html"}
+  - {id: p02_shop, url: "${BASE}/f17_shop/index.html"}
+  - {id: p03_shop_popup, url: "${BASE}/f17_shop/index.html?popup=1"}
+  - {id: p04_shop_item, url: "${BASE}/f17_shop/item.html?id=3"}
+  - {id: p05_dense, url: "${BASE}/f19_dense/index.html"}
+  - {id: p06_bing_asyncio, url: "https://www.bing.com/search?q=python+asyncio"}
+  - {id: p07_bing_weather, url: "https://www.bing.com/search?q=weather+seattle"}
+  - {id: p08_bing_copilot, url: "https://www.bing.com/search?q=github+copilot"}
+  - {id: p09_bing_rust, url: "https://www.bing.com/search?q=rust+ownership"}
+  - {id: p10_bing_usbc, url: "https://www.bing.com/search?q=usb+c+cable"}

@@ -273,12 +273,16 @@ async def p10(ctx):
         comments_ok = sum("#" in x for x in backup.splitlines()) == sum("#" in x for x in cfg_path.read_text(encoding="utf-8").splitlines())
         await ctx.post("/api/settings/restore")
         restored = (await ctx.get("/api/settings"))["data"]["effective"]
+        # ver1 起视觉大模型已接入：可以选（200）；不存在的决策方式仍被拒（400）。选完切回规则决策，不影响后续检查
         vlm_code, _ = await ctx.req("PUT", "/api/settings", {"decision": "vlm"}, expect_ok=False)
+        bad_code, _ = await ctx.req("PUT", "/api/settings", {"decision": "gpt"}, expect_ok=False)
+        await ctx.req("PUT", "/api/settings", {"decision": "rule"})
         ok = (k >= 3 and not later_over and code == 400 and saved["quiet_ms"] == 650 and comments_ok
-              and restored["quiet_ms"] == 500 and restored["humanize.mouse.overshoot_prob"] == 0.7 and vlm_code == 400)
+              and restored["quiet_ms"] == 500 and restored["humanize.mouse.overshoot_prob"] == 0.7
+              and vlm_code == 200 and bad_code == 400)
         return ok, (f"第 {k + 1} 次点击起 overshoot_prob=0（前 {k} 次仍为旧值 1.0），之后无过冲；越界 → {code}；"
                     f"保存为默认后 config.yaml quiet_ms={saved['quiet_ms']}、注释保留={comments_ok}；"
-                    f"恢复默认 OK；视觉大模型 → {vlm_code}")
+                    f"恢复默认 OK；视觉大模型 → {vlm_code}，未知决策方式 → {bad_code}")
     finally:
         cfg_path.write_text(backup, encoding="utf-8")
         await ctx.post("/api/settings/restore")
