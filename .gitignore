@@ -18,8 +18,9 @@ build/
 dist/
 panel.lock
 config.yaml.bak
-# 编辑器/助手的本机配置（含本机路径与权限），不入库
-.claude/
+# 编辑器/助手的本机配置（settings.local.json 含本机权限），只留面板启动配置
+.claude/*
+!.claude/launch.json
 # 本地工作记录（会话整理稿、交接笔记），不入库
 docs/**/*_sessions/
 docs/**/handover*.md
