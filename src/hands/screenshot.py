@@ -13,6 +13,9 @@ async def capture(page, full_page: bool = False) -> bytes:
 
 
 async def device_pixel_ratio(page) -> float:
+    own = getattr(page, "device_pixel_ratio", None)       # 桌面驱动：显示缩放，不执行脚本
+    if callable(own):
+        return float(await own() or 1)
     return float(await page.evaluate("window.devicePixelRatio") or 1)
 
 

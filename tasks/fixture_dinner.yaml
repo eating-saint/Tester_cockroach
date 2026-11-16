@@ -1,0 +1,32 @@
+# 关联展开任务：点餐（本地仿点评夹具版，验收 d17 用）
+kind: expand
+name: fixture_dinner
+title: 今晚吃什么（夹具）
+search_url: ${BASE}/f23_dinner/search.html?q={q}
+query: "便宜 {key} {value} ${location}"     # 餐厅这一层带上品类：搜出来的页面里有它自己的价位、评分
+start: 晚餐
+groups:
+  - 晚餐: [韩式拌饭, 日本寿司, 中式炒菜]
+sources:
+  - 搜索结果里的餐厅列表（店名、价位、评分）
+  - 右侧榜单（收藏榜第一、消费榜第一）
+conditions:
+  - id: c1
+    text: 搜索结果里价位不高于 ${max_tier} 档（$ 为 1 档）的餐厅，作为当前品类的值（当前品类成为新的键）
+  - id: c2
+    text: 收藏榜第一或消费榜第一的餐厅一律记下保留
+budget: 30
+keep_tabs: 10
+read_per_node: 0
+node_steps: 6
+output:
+  type: ranked
+  fields: [店名, 价位, 评分]
+  sort: ["price:asc", "rating:desc"]
+  n: ${n}
+  group_by: key
+params:
+  - {name: BASE, label: 夹具地址, default: "http://127.0.0.1:8765"}
+  - {name: location, label: 地点, default: ""}
+  - {name: n, label: 每类留几个, default: 2}
+  - {name: max_tier, label: 价位上限（档）, default: 2}

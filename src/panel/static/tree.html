@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="panel-token" content="{{TOKEN}}">
+<title>任务树 - Hands</title>
+<link rel="stylesheet" href="/static/tree.css">
+</head>
+<body>
+<header>
+  <div class="row">
+    <b>关联展开任务</b>
+    <select id="typeSel"></select>
+    <span id="paramBox"></span>
+    <label>次数上限 <input id="budget" type="number" min="1" size="5"></label>
+    <button id="bStart" class="primary">开始</button>
+    <a href="/" class="muted">← 返回面板</a>
+  </div>
+  <div class="row status">
+    <span id="state" class="tag">未运行</span>
+    <span>已用 <b id="used">0</b> / <b id="budgetNow">0</b> 次</span>
+    <span>节点 <b id="nNodes">0</b> · 末端叶子 <b id="nLeaves">0</b> · 待查 <b id="nPending">0</b></span>
+    <span id="pauseText" class="warn"></span>
+  </div>
+  <div class="row">
+    <button id="bPause">暂停</button>
+    <button id="bResume">恢复</button>
+    <button id="bFinish" class="danger">结束并输出</button>
+    <label>再给 <input id="grantN" type="number" min="1" value="20" size="4"> 次 <button id="bGrant">继续</button></label>
+    <span id="msg" class="muted"></span>
+  </div>
+  <div id="confirmBar" class="banner hidden">
+    <b>需要你确认：</b><span id="confirmText"></span>
+    <button id="bAllow" class="primary">允许一次</button><button id="bDeny" class="danger">拒绝</button>
+  </div>
+</header>
+<main>
+  <section id="treeBox"><h3>任务树</h3><div id="tree" class="muted">（还没有运行）</div></section>
+  <section id="side">
+    <h3>变化曲线</h3>
+    <svg id="chart" viewBox="0 0 320 140" preserveAspectRatio="none"></svg>
+    <div class="legend"><span class="l1">末端叶子</span> <span class="l2">节点</span> <span class="l3">已用次数</span></div>
+    <h3>节点详情</h3>
+    <div id="detail" class="muted">点树上的节点查看</div>
+    <div class="row">
+      <button id="bDel" disabled>删除</button>
+      <button id="bTerm" disabled>改成末端叶子</button>
+      <button id="bPend" disabled>改回待查</button>
+    </div>
+    <h3>加一组</h3>
+    <div class="row">
+      <input id="gKey" placeholder="键" size="10">
+      <input id="gVals" placeholder="值，用逗号分隔" size="22">
+      <button id="bGroup">加入</button>
+    </div>
+    <p class="muted small">修改任务树需要先暂停（次数用满时自动停下）。</p>
+    <h3>结果</h3>
+    <div id="result" class="muted">（任务结束后显示）</div>
+  </section>
+</main>
+<script src="/static/tree.js"></script>
+</body>
+</html>

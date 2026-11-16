@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F20 一直在变</title></head>
+<body style="margin:0;font:16px sans-serif">
+  <div id="box" style="width:100%;height:600px"></div>
+  <button>不稳定页按钮</button>
+  <script>
+    let i = 0;
+    setInterval(() => { document.getElementById("box").style.background = (i++ % 2) ? "#000" : "#fff"; }, 100);
+  </script>
+</body></html>

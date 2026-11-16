@@ -1,0 +1,27 @@
+# 关联展开任务：变形金刚角色（本地仿搜索夹具版，验收 d12 用）
+kind: expand
+name: fixture_transformers
+title: 变形金刚角色（夹具）
+search_url: ${BASE}/f22_search/search.html?q={q}
+query: "{value}"
+start: optimus
+groups:
+  - optimus: [galvatron, megatron, starscream]
+  - megatron: [starscream, shockwave, soundwave]
+  - movie: [fallen, decepticon, autobot]
+sources:
+  - 搜索结果的标题和摘要
+  - 右侧「相关搜索」
+conditions:
+  - id: c1
+    text: 第一页搜索结果中至少 {ratio} 的摘要都提到同一个词，就把那个词作为当前词的值（当前词成为新的键）
+    params: {ratio: 0.8}
+  - id: c2
+    text: 候选词本身就是已知的键或值，并且和当前词稳定地一起出现
+budget: 120
+keep_tabs: 30
+read_per_node: 0
+node_steps: 6
+output: {type: leaves}
+params:
+  - {name: BASE, label: 夹具地址, default: "http://127.0.0.1:8765"}

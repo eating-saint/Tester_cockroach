@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F20 桌面坐标</title>
+<style>
+  body{margin:0;font:14px sans-serif}
+  .b{position:absolute;width:120px;height:40px;font-size:14px}
+  #pw{position:absolute;left:40px;top:300px;width:200px;height:28px}
+  #log{position:absolute;left:40px;top:360px}
+</style></head>
+<body>
+  <button class="b" id="b1" style="left:40px;top:40px" data-rect="40,40,120,40">坐标一</button>
+  <button class="b" id="b2" style="left:400px;top:40px" data-rect="400,40,120,40">坐标二</button>
+  <button class="b" id="b3" style="left:900px;top:40px" data-rect="900,40,120,40">坐标三</button>
+  <button class="b" id="b4" style="left:40px;top:200px" data-rect="40,200,120,40">坐标四</button>
+  <button class="b" id="b5" style="left:600px;top:420px" data-rect="600,420,120,40">坐标五</button>
+  <button class="b" id="b6" style="left:1000px;top:500px" data-rect="1000,500,120,40">坐标六</button>
+  <input id="pw" type="password" aria-label="密码" value="P@ss-fixture-123">
+  <div id="log">点击记录：</div>
+  <script>
+    window.__clicks = [];
+    document.querySelectorAll("button").forEach(b => b.addEventListener("click", ev => {
+      window.__clicks.push({id: b.id, x: ev.clientX, y: ev.clientY});
+      document.getElementById("log").textContent = "点击记录：" + window.__clicks.map(c => c.id).join(",");
+    }));
+  </script>
+</body></html>

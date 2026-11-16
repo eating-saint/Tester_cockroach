@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F20 画布</title></head>
+<body style="margin:0">
+  <canvas id="c" width="1200" height="700"></canvas>
+  <script>
+    const c = document.getElementById("c"), g = c.getContext("2d");
+    const btn = {x: 520, y: 300, w: 160, h: 60};
+    function draw(done) {
+      g.fillStyle = "#fafafa"; g.fillRect(0, 0, c.width, c.height);
+      g.fillStyle = done ? "#2a7" : "#36c"; g.fillRect(btn.x, btn.y, btn.w, btn.h);
+      g.fillStyle = "#fff"; g.font = "22px sans-serif"; g.fillText(done ? "已点击" : "画布按钮", btn.x + 30, btn.y + 38);
+    }
+    draw(false);
+    c.addEventListener("click", ev => {
+      const r = c.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+      if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
+        draw(true); document.title = "F20 画布 已点击";
+      }
+    });
+  </script>
+</body></html>

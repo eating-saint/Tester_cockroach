@@ -295,6 +295,37 @@ class Page:
         await self.session.send("Page.reload")
         return await self.wait_settled(True, timeout)
 
+    # ---- 关联展开保留标签页（可选方法；现有流程不调用） ----
+    async def new_tab(self, url: str) -> str:
+        tid = (await self.conn.send("Target.createTarget", {"url": "about:blank"}))["targetId"]
+        await self.release()
+        await self.attach(tid)
+        if url and url != "about:blank":
+            await self.navigate(url)
+        return tid
+
+    async def select_tab(self, tid: str) -> bool:
+        if tid != self.target_id:
+            await self.release()
+            await self.attach(tid)
+        try:
+            await self.conn.send("Target.activateTarget", {"targetId": tid})
+        except Exception:
+            pass
+        return True
+
+    async def close_tab(self, tid: str) -> None:
+        pages = [t["targetId"] for t in (await self.conn.send("Target.getTargets"))["targetInfos"]
+                 if t["type"] == "page"]
+        if len(pages) <= 1:
+            await self.navigate("about:blank")
+            return
+        if tid == self.target_id:
+            other = next(p for p in pages if p != tid)
+            await self.release()
+            await self.attach(other)
+        await self.conn.send("Target.closeTarget", {"targetId": tid})
+
     async def adopt_new_tab(self, target_id: str) -> WaitResult:
         self._openers.append(self.target_id)
         await self.release()

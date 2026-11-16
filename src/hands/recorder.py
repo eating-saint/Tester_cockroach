@@ -56,8 +56,10 @@ class RunRecorder:
         self.steps[case] = []
 
     def save_step(self, case: str, rec: StepRecord, page_state=None, trajectory_png: bytes | None = None,
-                  dpr: float = 1.0):
+                  dpr: float = 1.0, extra_files: dict | None = None):
         d = self.step_dir(case, rec.index)
+        for name, obj in (extra_files or {}).items():     # 桌面驱动：desktop.json
+            _dump(d / name, obj)
         if page_state is not None:
             page_state.to_json(d / "pagestate.json")
         traj = (rec.action_result or {}).get("trajectory")
@@ -79,6 +81,10 @@ class RunRecorder:
 
     def save_case_result(self, case: str, result):
         _dump(self.case_dir(case) / "result.json", result.to_dict())
+        if getattr(result, "pauses", None):
+            _dump(self.case_dir(case) / "pauses.json", result.pauses)
+        if getattr(result, "confirms", None):
+            _dump(self.case_dir(case) / "confirms.json", result.confirms)
 
     def write_report(self, results, humanize: dict | None = None) -> Path:
         _dump(self.root / "report.json", {"run": self.root.name, "humanize": humanize,
@@ -93,6 +99,16 @@ class RunRecorder:
                 fmt = lambda t: time.strftime("%H:%M:%S", time.localtime(t))  # noqa: E731
                 rows.append(f"<tr><td></td><td colspan=5>人工介入：{fmt(h['start'])} – {fmt(h['end'])}"
                             f"（{h['end'] - h['start']:.1f}s），命中标记 {e(str(h.get('hit')))}</td></tr>")
+            fmt2 = lambda t: time.strftime("%H:%M:%S", time.localtime(t))  # noqa: E731
+            hows = {"button": "面板恢复", "cli": "命令行恢复", "idle": "停手自动恢复"}
+            for p in getattr(r, "pauses", None) or []:
+                rows.append(f"<tr><td></td><td colspan=5>暂停：{fmt2(p['start'])}，原因 {e(p['reason'])}，"
+                            f"{p.get('duration_s', 0)}s，{e(hows.get(p.get('how'), str(p.get('how'))))}</td></tr>")
+            for c in getattr(r, "confirms", None) or []:
+                tgt = c.get("target") or {}
+                rows.append(f"<tr><td></td><td colspan=5>需确认：{e(c.get('kind', ''))} {e(c.get('tool', ''))}"
+                            f"「{e(tgt.get('name') or tgt.get('text') or '')}」命中「{e(c.get('hit', ''))}」→ "
+                            f"{'允许一次' if c.get('allowed') else '拒绝'}</td></tr>")
             if getattr(r, "decision", "rule") == "vlm":
                 rows.append("<tr><td></td><td colspan=5>决策方式：视觉大模型</td></tr>")
             ex = getattr(r, "extractions", None) or []
@@ -112,6 +128,15 @@ class RunRecorder:
                     link += ' <a href="%s">标注图</a>' % e(f"{r.name}/step_{s.index:03d}/vlm/annotated.png")
                 if (tdir / "vlm" / "response.json").exists():
                     link += ' <a href="%s">模型回答</a>' % e(f"{r.name}/step_{s.index:03d}/vlm/response.json")
+                if (tdir / "desktop.json").exists():
+                    try:
+                        dj = json.loads((tdir / "desktop.json").read_text(encoding="utf-8"))
+                        src = " / ".join(f"{k} {v}" for k, v in (dj.get("element_sources") or {}).items())
+                        fr = dj.get("frame") or {}
+                        w = (dj.get("wait") or {}).get("status", "-")
+                        link += " " + e(f"来源 {src} · 缩放 {fr.get('scale', '-')} · 读树 {dj.get('read_ms')}ms · 等待 {w}")
+                    except (OSError, ValueError):
+                        pass
                 dist = ar.get("disturbances") or []
                 if dist:
                     link += " " + e("、".join("思考 %dms" % x["ms"] if x["kind"] == "think"

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>夹具点评</title>
+<style>body{font:14px sans-serif;margin:0;display:flex;gap:40px;padding:20px}
+#main{width:620px} #side{width:260px;border-left:1px solid #ddd;padding-left:16px}
+.card{border-bottom:1px solid #eee;padding:8px 0} .card a{font-size:16px}</style></head>
+<body>
+  <div id="main">
+    <form action="search.html"><input type="search" name="q" aria-label="搜索餐厅" id="q" style="width:380px"> <button>搜索</button></form>
+    <h2 id="head"></h2><div id="list" role="list"></div>
+  </div>
+  <aside id="side"><h3>榜单</h3><div id="boards"></div></aside>
+  <script>
+    const q = (new URLSearchParams(location.search).get("q") || "").trim();
+    document.getElementById("q").value = q;
+    document.title = (q || "夹具点评") + " - 夹具点评";
+    fetch("data.json").then(r => r.json()).then(d => {
+      const name = Object.keys(d.cuisines).find(c => q.includes(c));
+      document.getElementById("head").textContent = name ? `「${name}」附近的餐厅` : "没有找到相关餐厅";
+      if (!name) return;
+      const list = document.getElementById("list");
+      d.cuisines[name].forEach(r => {
+        const div = document.createElement("div"); div.className = "card"; div.setAttribute("role", "listitem");
+        div.innerHTML = `<a href="biz.html?id=${r.id}"></a><div class="price"></div><div class="rating"></div>`;
+        div.querySelector("a").textContent = r.name;
+        div.querySelector(".price").textContent = "价位：" + (r.price || "未标注");
+        div.querySelector(".rating").textContent = "评分：" + r.rating;
+        list.appendChild(div);
+      });
+      const b = d.boards[name];
+      document.getElementById("boards").innerHTML = Object.entries(b).map(([k, v]) => `<p>${k}：${v}</p>`).join("");
+    });
+  </script>
+</body></html>

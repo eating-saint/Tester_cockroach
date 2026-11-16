@@ -14,6 +14,7 @@ test = ["pytest", "pytest-asyncio"]
 panel = ["aiohttp", "pywebview"]
 build = ["pyinstaller"]
 pw = ["playwright>=1.63"]
+desktop = ["comtypes>=1.4"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

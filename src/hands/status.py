@@ -27,6 +27,7 @@ class LiveStatus:
         self.wait: WaitInfo | None = None
         self.page_epoch: int = 0
         self.last_action: dict | None = None
+        self.pause: dict | None = None
         self._subs: list[Callable] = []
 
     def subscribe(self, cb: Callable[[str, dict], None]) -> Callable[[], None]:
@@ -62,6 +63,11 @@ class LiveStatus:
     def page_changed(self):
         self.page_epoch += 1
         self._emit("page_changed", {"epoch": self.page_epoch})
+
+    def set_pause(self, info: dict | None):
+        """暂停 / 恢复（桌面驱动人工输入、面板按钮、改树、次数上限）。"""
+        self.pause = info
+        self._emit("pause", {"pause": info})
 
     def action_done(self, info: dict):
         self.last_action = info

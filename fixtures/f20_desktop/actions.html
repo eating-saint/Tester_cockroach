@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>F20 桌面动作</title>
+<style>
+  body{font:14px sans-serif;margin:20px}
+  #menu{display:none;position:fixed;background:#fff;border:1px solid #888;padding:4px;z-index:9}
+  #menu [role=menuitem]{display:block;padding:4px 16px;cursor:pointer}
+  #dbl{width:160px;height:50px;background:#def;display:flex;align-items:center;justify-content:center}
+  .screen{height:700px;border-top:1px dashed #aaa}
+</style></head>
+<body>
+  <h1>动作夹具</h1>
+  <div id="ctx" style="width:200px;height:50px;background:#fed" role="button" aria-label="右键区域" tabindex="0">右键区域</div>
+  <div id="menu" role="menu"><span role="menuitem" tabindex="-1">复制这一条</span><span role="menuitem" tabindex="-1">分享这一条</span></div>
+  <p id="picked">菜单选择：无</p>
+  <div id="dbl" role="button" aria-label="双击区域" tabindex="0">双击区域</div>
+  <p id="dblcount">双击次数：0</p>
+  <p><input id="t" aria-label="输入框" style="width:300px"> <span id="tv">当前值：</span></p>
+  <p id="chord">组合键：未收到</p>
+  <p><a id="plain" href="actions_done.html">普通链接</a> <a id="tablink" href="actions_done.html?tab=1">可新标签页打开的链接</a></p>
+  <div class="screen"><h2>第二屏</h2></div>
+  <div class="screen"><h2>第三屏</h2></div>
+  <div class="screen"><h2>第四屏（底部）</h2></div>
+  <script>
+    const menu = document.getElementById("menu");
+    document.getElementById("ctx").addEventListener("contextmenu", ev => {
+      ev.preventDefault(); menu.style.display = "block";
+      menu.style.left = ev.clientX + "px"; menu.style.top = ev.clientY + "px";
+    });
+    menu.querySelectorAll("[role=menuitem]").forEach(m => m.addEventListener("click", () => {
+      document.getElementById("picked").textContent = "菜单选择：" + m.textContent; menu.style.display = "none";
+    }));
+    let n = 0;
+    document.getElementById("dbl").addEventListener("dblclick", () => {
+      document.getElementById("dblcount").textContent = "双击次数：" + (++n);
+    });
+    const t = document.getElementById("t");
+    t.addEventListener("input", () => document.getElementById("tv").textContent = "当前值：" + t.value);
+    document.addEventListener("keydown", ev => {
+      if (ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === "k") {
+        ev.preventDefault(); document.getElementById("chord").textContent = "组合键：已收到";
+      }
+    });
+  </script>
+</body></html>

@@ -237,6 +237,51 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
     r.add_post("/api/jobs/stop", jobs_stop)
     r.add_post("/api/jobs/continue", jobs_continue)
 
+    # ---------- 暂停 / 恢复 / 需确认（桌面驱动 spec F8、F9；下一章手机复用） ----------
+    async def jobs_pause(request):
+        return ok(svc.jobs.pause())
+
+    async def jobs_resume(request):
+        return ok(svc.jobs.resume())
+
+    async def jobs_confirm(request):
+        d = await body(request)
+        return ok(svc.jobs.confirm(bool(d.get("allow"))))
+    r.add_post("/api/jobs/pause", jobs_pause)
+    r.add_post("/api/jobs/resume", jobs_resume)
+    r.add_post("/api/jobs/confirm", jobs_confirm)
+
+    # ---------- 关联展开（spec F15、F16） ----------
+    async def ex_types(request):
+        return ok(svc.jobs.expand_types())
+
+    async def ex_start(request):
+        d = await body(request)
+        try:
+            job = await svc.jobs.start("expand", {"type": d.get("type"), "params": d.get("params") or {},
+                                                  "budget": d.get("budget")})
+        except JobBusy as e:
+            return err(409, f"正在运行：{e.title}", running=e.title)
+        except (RuntimeError, ValueError, FileNotFoundError, KeyError) as e:
+            return err(400, f"{type(e).__name__}: {e}")
+        return ok(job.to_dict())
+
+    async def ex_tree(request):
+        return ok(svc.jobs.expand_snapshot)
+
+    async def ex_edit(request):
+        d = await body(request)
+
+        async def go():
+            return svc.jobs.expand_edit(str(d.get("op", "")), d.get("node"), d.get("key"), d.get("values"),
+                                        d.get("n"))
+        return await guarded(go())
+    r.add_get("/api/expand/types", ex_types)
+    r.add_post("/api/expand/start", ex_start)
+    r.add_get("/api/expand/tree", ex_tree)
+    r.add_post("/api/expand/edit", ex_edit)
+    r.add_get("/tree", page("tree.html"))
+
     async def cases(request):
         return ok(svc.cases())
 

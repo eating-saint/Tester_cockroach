@@ -90,6 +90,22 @@ async def handoff(browser, url: str, save_dir, input_fn=input, log=print, marker
         shot_path.write_bytes(await shot.capture(browser.page))
     except Exception as e:  # 截图失败不阻断人工流程
         log(f"[HUMAN_REQUIRED] 截图失败: {e}")
+    from .driver import caps_of
+    if caps_of(browser).os_input:
+        # 桌面驱动：本来就是用户的真实窗口，不重开、不重新导航（用户可能已经登录或跳转了）
+        log(f"[HUMAN_REQUIRED] 需要人工处理（验证码 / 登录 / 对话框）。截图: {shot_path}")
+        if inspect.iscoroutinefunction(input_fn):
+            await input_fn(browser.page)
+        elif input_fn is input and not _console_interactive():
+            log("[HUMAN_REQUIRED] 请在代理窗口里处理。没有可交互的控制台：验证码消失后自动继续……")
+            await wait_cleared(browser, markers, log)
+        else:
+            log("[HUMAN_REQUIRED] 请在代理窗口里处理，完成后回到这里按回车继续……")
+            try:
+                await asyncio.to_thread(input_fn)
+            except EOFError:
+                await wait_cleared(browser, markers, log)
+        return browser.page
     was_headless = browser.headless
     await browser.relaunch(headless=False)
     page = await browser.new_page()

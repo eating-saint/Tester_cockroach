@@ -16,7 +16,10 @@ import yaml
 from . import captcha
 from .actions import ActionExecutor, ActionResult
 from .cdp import BrowserCrashed
+from .confirm import ConfirmPolicy, cli_confirm_fn
 from .decision import TOOL_REGISTRY, DecisionInput, decide_with_retry
+from .driver import AgentWindowClosed, caps_of
+from .pause import PauseGate
 from .humanize import HumanizeConfig, Humanizer, derive_seed, new_seed
 from .pagestate import build_page_state
 from .guard import Guard
@@ -102,6 +105,8 @@ class CaseResult:
     human_handoffs: list[dict] = field(default_factory=list)   # 人工介入：[{start, end, hit, url}]
     decision: str = "rule"                                     # ver1：本用例的决策方式
     extractions: list[dict] = field(default_factory=list)      # ver1：抽取结果（含是否有依据）
+    pauses: list[dict] = field(default_factory=list)           # 桌面：暂停记录 [{start, end, reason, how}]
+    confirms: list[dict] = field(default_factory=list)         # 桌面：需确认请求与回答
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -134,10 +139,18 @@ class CaseFailed(Exception):
 class CaseRunner:
     def __init__(self, browser, config, recorder: RunRecorder, decider_factory=None,
                  on_step=None, input_fn=input, log=print, should_stop=None, before_action=None,
-                 handoff_fn=None, humanizer_factory=None):
+                 handoff_fn=None, humanizer_factory=None, gate=None, confirm_fn=None, budget_hook=None):
         self.browser = browser
         self.config = config
         self.recorder = recorder
+        # 桌面驱动（spec F8、F9）：暂停门、需确认。CDP / Playwright 下暂停门不监听人工输入、需确认默认关
+        self.caps = caps_of(browser)
+        self.gate = gate or getattr(browser, "gate", None) or PauseGate(watch_human=False)
+        self.confirm = ConfirmPolicy.from_config(getattr(config, "confirm", None), self.caps.confirm_default)
+        self.confirm_fn = confirm_fn or cli_confirm_fn(input_fn, log)
+        self.budget_hook = budget_hook                # (decision, result) -> bool；False = 停（关联展开次数上限）
+        self._confirms: dict[str, list[dict]] = {}
+        self._pause_log_start = 0
         # decider_factory 为 None：按 config.decision 选（rule = 规则决策；vlm = 视觉大模型，ver1）
         self.decision = getattr(config, "decision", "rule")
         if decider_factory is None:
@@ -164,6 +177,9 @@ class CaseRunner:
         self._repeat = RepeatWatch()                 # 每次 _attempt 开头重置
         self._last_visit: dict[str, float] = {}
         self.humanize = HumanizeConfig.from_dict(getattr(config, "humanize", None))
+        if self.caps.os_input and not self.humanize.mouse.enabled:
+            from .config import desktop_humanize      # 桌面驱动：真实鼠标默认平滑、放慢移动
+            self.humanize = desktop_humanize(config, self.humanize)
         # 运行种子：配置里写了就用配置的，否则随机生成；各用例的种子由它和用例名派生
         self.run_seed = self.humanize.seed if self.humanize.seed is not None else new_seed()
         self._case_seed: dict[str, int] = {}
@@ -205,7 +221,15 @@ class CaseRunner:
         if fresh is not None:
             await fresh()
         await self._respect_interval(case.start_url)
-        await page.navigate(case.start_url)
+        from .pause import Interrupted
+        for _ in range(5):                       # 开头导航被暂停打断：等恢复后重来（桌面驱动）
+            try:
+                await page.navigate(case.start_url)
+                break
+            except Interrupted:
+                await self.gate.wait()
+        else:
+            await page.navigate(case.start_url)
         tree = TaskTree(case.root_goal, case.root_done_when, case.limits["max_depth"], case.limits["max_steps"])
         decider = self.decider_factory(case)
         humanizer = self._humanizer(case.name, attempt)
@@ -215,15 +239,20 @@ class CaseRunner:
 
         def make_executor(p):
             return ActionExecutor(p, humanizer, capture_trajectory=humanizer is not None,
-                                  before_action=self.before_action, guard=guard)
+                                  before_action=self.before_action, guard=guard,
+                                  confirm=self.confirm, confirm_fn=self.confirm_fn, gate=self.gate)
         executor = make_executor(page)
         self._repeat = RepeatWatch()
         deadline = time.monotonic() + case.timeout_s
         index = 0
         clicks = 0
         handoffs = 0
+        self._pending_handoff = None                 # 上一步动作要求转人工（如目标是密码框）
         try:
             while not tree.finished:
+                # 暂停中（人一碰鼠标键盘 / 面板暂停 / 改树）：等恢复；等待时长不计入用例时限（spec F8）
+                paused_s = await self.gate.wait()
+                deadline += paused_s
                 if self.should_stop is not None and self.should_stop():
                     self._stopped = True
                     tree.fail("user_stopped")
@@ -236,12 +265,31 @@ class CaseRunner:
                 sdir = self.recorder.step_dir(case.name, index)
                 # CHECK
                 STATUS.set_phase("CHECK")
-                state = await build_page_state(page, sdir)
+                try:
+                    state = await build_page_state(page, sdir)
+                except Exception as e:
+                    from .pause import Interrupted
+                    if isinstance(e, Interrupted):       # 观察途中被暂停（极少见）：这一步作废，恢复后重来
+                        index -= 1
+                        continue
+                    raise
                 hit = captcha.detect(state, self.config.captcha_markers)
                 if hit and hit.startswith("iframe:") and captcha.signature(state, hit) in self._handled:
                     # 同一个验证框已经人工处理过：真实验证框（Turnstile、reCAPTCHA）通过后 iframe 还留在页面上，不重复转人工。
                     # 网址或正文命中（拦截页本身，如 walmart.com/blocked）还在，说明没通过：照常再转人工，3 次后判失败。
                     hit = None
+                if not hit and self.confirm.enabled:
+                    login = self.confirm.login_hit(state)       # 登录、密码、短信验证 → 转人工（spec F9）
+                    if login and captcha.signature(state, f"login:{login}") not in self._handled:
+                        hit = f"login:{login}"
+                if not hit and self._pending_handoff:
+                    hit, self._pending_handoff = self._pending_handoff, None
+                if not hit:
+                    dlg = getattr(page, "dialogs", None)
+                    if dlg is not None:
+                        found = await dlg()
+                        if found:                               # 系统对话框（打印、保存）→ 转人工，不去点它（F10）
+                            hit = f"dialog:{found[0].get('title') or found[0].get('hwnd')}"
                 if hit:
                     handoffs += 1
                     self.log(f"[HUMAN_REQUIRED] {case.name}: 检测到 {hit}")
@@ -249,11 +297,16 @@ class CaseRunner:
                         tree.fail(f"captcha not resolved: {hit}")
                         break
                     h_start = time.time()
-                    if self.handoff_fn is None:
-                        page = await captcha.handoff(self.browser, state.url, sdir, self.input_fn, self.log,
-                                                     markers=self.config.captcha_markers)
-                    else:
-                        page = await self.handoff_fn(self.browser, state.url, sdir, self.input_fn, self.log)
+                    self.gate.pause("handoff", {"hit": hit})     # 人工处理期间的鼠标键盘不算"抢占"
+                    try:
+                        if self.handoff_fn is None:
+                            page = await captcha.handoff(self.browser, state.url, sdir, self.input_fn, self.log,
+                                                         markers=self.config.captcha_markers)
+                        else:
+                            page = await self.handoff_fn(self.browser, state.url, sdir, self.input_fn, self.log)
+                    finally:
+                        self.gate.resume("handoff")
+                        self.gate.arm(self._grace())
                     h_end = time.time()
                     self._handoffs.setdefault(case.name, []).append(
                         {"start": h_start, "end": h_end, "hit": hit, "url": state.url})
@@ -273,7 +326,8 @@ class CaseRunner:
                 node_id = tree.active_id
                 try:
                     decision, raws, tries = await decide_with_retry(
-                        decider, DecisionInput(state, tree.view(), case.inputs, step_dir=sdir, brief=case.brief))
+                        decider, DecisionInput(state, tree.view(), case.inputs, step_dir=sdir, brief=case.brief,
+                                               caps=self.caps))
                 except Exception as e:
                     from .vlm.client import ModelUnavailable
                     if not isinstance(e, ModelUnavailable):
@@ -286,9 +340,20 @@ class CaseRunner:
                 STATUS.set_phase("EXECUTE")
                 page, clicks = await self._step_execute(case, tree, state, decision, raws, tries, executor, page,
                                                         node_id, index, attempt, clicks, t0, t1, t2)
+        except AgentWindowClosed:
+            # 桌面驱动：用户关掉了代理窗口。任务结束，不重跑（spec F2）
+            self.log(f"[desktop] {case.name}: 代理窗口已关闭，任务结束")
+            if not tree.finished:
+                while not tree.finished:
+                    tree.fail("代理窗口已关闭")
         finally:
             STATUS.set_phase(None)
+            self._confirms.setdefault(case.name, []).extend(executor.confirms)
         return tree, index, clicks
+
+    def _grace(self) -> float:
+        from .config import desktop_settings
+        return float(desktop_settings(self.config)["resume_grace_s"]) if self.caps.os_input else 0.0
 
     async def _step_execute(self, case, tree, state, decision, raws, tries, executor, page, node_id, index,
                             attempt, clicks, t0, t1, t2):
@@ -308,11 +373,19 @@ class CaseRunner:
                     tree.fail(f"重复动作：{what} 连续 {repeated} 次没有效果")
             else:
                 result = await self._execute(decision, state, tree, executor)
-                self._repeat.note(result.effective)
-                if decision.tool in ("click", "open_tab") and result.ok:
+                interrupted = isinstance(result.data, dict) and result.data.get("interrupted")
+                if interrupted:
+                    self._repeat = RepeatWatch()        # 被打断的动作不算"原地打转"
+                else:
+                    self._repeat.note(result.effective)
+                if isinstance(result.data, dict) and result.data.get("handoff"):
+                    self._pending_handoff = f"login:{result.data['handoff']}"
+                if decision.tool in ("click", "open_tab", "right_click") and result.ok:
                     clicks += 1
                 if executor.page is not page:
                     page = executor.page
+                if self.budget_hook is not None and not tree.finished and not self.budget_hook(decision, result):
+                    tree.fail("budget")
             t3 = time.monotonic()
             # VERIFY
             target = target_label = None
@@ -336,8 +409,20 @@ class CaseRunner:
             rec = StepRecord(index, node_id, "pagestate.json", state.screenshot, raws,
                              decision.to_dict() if decision else None, tries - 1, result.to_dict(), durations,
                              target=target)
+            extra = None
+            drain = getattr(page, "drain_injected", None)
+            if drain is not None:                       # 桌面驱动：本步的元素来源、换算比例、注入事件（F17）
+                src = {}
+                for e in state.elements:
+                    src[e.source] = src.get(e.source, 0) + 1
+                fr = getattr(page, "_frame", None)
+                extra = {"desktop.json": {"element_sources": src, "frame": fr.to_dict() if fr else None,
+                                          "read_ms": getattr(page, "last_read_ms", None),
+                                          "check_ms": durations["check"], "wait": result.wait.to_dict() if result.wait else None,
+                                          "injected": drain(), "interrupted": bool(isinstance(result.data, dict)
+                                                                                   and result.data.get("interrupted"))}}
             self.recorder.save_step(case.name, rec, state, trajectory_png=result.trajectory_png,
-                                    dpr=state.device_pixel_ratio)
+                                    dpr=state.device_pixel_ratio, extra_files=extra)
             if self.on_step is not None:
                 r = self.on_step({"index": index, "tree": tree, "page": page, "browser": self.browser,
                                   "attempt": attempt, "case": case, "decision": decision,
@@ -370,7 +455,15 @@ class CaseRunner:
             if e is None:
                 raise LookupError(f"unknown element {eid}")
             return e
+        if tool == "show_grid":                    # 桌面：下一步的元素清单叠加网格编号
+            rg = getattr(executor.page, "request_grid", None)
+            if rg is None:
+                return ActionResult(False, False, error="本驱动不支持网格")
+            rg()
+            return ActionResult(True, False, data="下一步的元素清单会加上网格编号（格 N）")
         try:
+            if tool == "right_click":
+                return await executor.right_click(el(a["element"]))
             if tool == "click":
                 return await executor.click(el(a["element"]))
             if tool == "open_tab":
@@ -430,6 +523,8 @@ class CaseRunner:
         self._stopped = False
         self._handoffs[case.name] = []
         self._case_name = case.name
+        self._confirms[case.name] = []
+        pause_from = len(self.gate.log)
         self.recorder.reset_case(case.name)
         while True:
             self._extractions[case.name] = []          # 崩溃重跑时抽取结果从头记
@@ -457,7 +552,9 @@ class CaseRunner:
                          str(self.recorder.case_dir(case.name) / "tree_events.json"),
                          int((time.monotonic() - start) * 1000), tree.root.summary, url, tree.shape(),
                          self._case_seed.get(case.name), list(self._handoffs.get(case.name, [])),
-                         self.decision, list(self._extractions.get(case.name, [])))
+                         self.decision, list(self._extractions.get(case.name, [])),
+                         [p for p in self.gate.log[pause_from:] if p.get("reason") != "handoff"],
+                         list(self._confirms.get(case.name, [])))
         self.recorder.save_case_result(case.name, res)
         return res
 

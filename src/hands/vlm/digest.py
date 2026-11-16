@@ -10,6 +10,7 @@ ROLE_ZH = {
     "button": "按钮", "link": "链接", "textbox": "输入框", "searchbox": "搜索框", "combobox": "组合框",
     "checkbox": "复选框", "radio": "单选", "listbox": "列表框", "menuitem": "菜单项", "tab": "标签页",
     "switch": "开关", "slider": "滑块", "spinbutton": "数字框",
+    "grid_cell": "格子",               # 桌面驱动网格兜底
 }
 
 

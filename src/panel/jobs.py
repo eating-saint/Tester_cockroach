@@ -22,7 +22,8 @@ from hands.status import STATUS
 REJECT_TEXT = {"miss": "没点中高亮目标", "left_area": "鼠标移出了窗口", "too_slow": "超过 5 秒", "too_few": "轨迹点太少",
                "duplicate": "重复样本", "page_changed": "页面变了"}
 KIND_NAMES = {"demo": "演示", "case": "用例", "target": "指定目标", "manual": "手动", "sample_real": "真实网站采集",
-              "compare_capture": "人眼比对采集", "compare_model": "人眼比对：模型作答"}
+              "compare_capture": "人眼比对采集", "compare_model": "人眼比对：模型作答", "expand": "关联展开"}
+OS_INPUT_BLOCKED = ("demo", "sample_real", "target", "manual")     # 桌面驱动下不提供（用户直接操作真实窗口即可）
 DEMO_IDS = {"中心": "b-c", "东": "b-e", "东南": "b-se", "南": "b-s", "西南": "b-sw", "西": "b-w",
             "西北": "b-nw", "北": "b-n", "东北": "b-ne", "小按钮": "b-tiny"}
 
@@ -43,6 +44,7 @@ class JobInfo:
     progress: dict = field(default_factory=dict)
     result: dict | None = None
     need_human: dict | None = None
+    confirm_pending: dict | None = None     # 需确认：{kind, tool, target, hit, text}
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -72,11 +74,74 @@ class JobManager:
         self.steps: list[dict] = []
         self.demo_rounds: list[dict] = []        # 演示：本轮 + 上一轮
         self.last_target: dict | None = None
+        from hands.pause import PauseGate
+        self._gate_local = PauseGate(watch_human=False)   # CDP / Playwright：只响应面板按钮
+        self._confirm_fut: asyncio.Future | None = None
+        self.expand = None                       # 当前（或最近一次）关联展开运行器
+        self.expand_snapshot: dict | None = None
+
+    # ---------------- 暂停 / 确认（spec F8、F9、F18） ----------------
+    @property
+    def gate(self):
+        return getattr(self.svc.browser, "gate", None) or self._gate_local
+
+    def _grace(self) -> float:
+        from hands.config import desktop_settings
+        from hands.driver import caps_of
+        return float(desktop_settings(self.svc.config)["resume_grace_s"]) if caps_of(self.svc.browser).os_input else 0
+
+    def pause(self) -> bool:
+        if not self.busy:
+            return False
+        ok = self.gate.pause("user")
+        self.svc.push_soon()
+        return ok
+
+    def resume(self) -> bool:
+        g = self.gate
+        if g.paused is None or g.paused.reason == "handoff":
+            return False
+        if self.expand is not None and self.expand.state == "waiting":
+            return False                         # 次数用满：用"再给 N 次"或"结束并输出"
+        g.resume("button")
+        g.arm(self._grace())
+        self.svc.push_soon()
+        return True
+
+    async def _confirm_fn(self, req) -> bool:
+        job = self.current
+        if job is None:
+            return False
+        prev = job.state
+        job.state = "need_confirm"
+        job.confirm_pending = {**req.to_dict(), "text": req.describe()}
+        self._confirm_fut = asyncio.get_running_loop().create_future()
+        self.svc.event("need_confirm", {"confirm": job.confirm_pending})
+        self.svc.push_soon()
+        STATUS.set_wait("human")
+        try:
+            return bool(await self._confirm_fut)
+        finally:
+            STATUS.clear_wait()
+            job.confirm_pending = None
+            self._confirm_fut = None
+            if job.state == "need_confirm":
+                job.state = prev if prev != "need_confirm" else "running"
+            self.gate.arm(self._grace())
+            self.svc.push_soon()
+
+    def confirm(self, allow: bool) -> bool:
+        f = self._confirm_fut
+        if f is None or f.done():
+            return False
+        f.set_result(bool(allow))
+        return True
 
     # ---------------- 公共 ----------------
     @property
     def busy(self) -> bool:
-        return self.current is not None and self.current.state in ("running", "need_human", "stopping")
+        return self.current is not None and self.current.state in ("running", "need_human", "stopping",
+                                                                   "need_confirm")
 
     @property
     def stop_requested(self) -> bool:
@@ -91,6 +156,11 @@ class JobManager:
             raise JobBusy(self.current.title)
         if kind not in KIND_NAMES:
             raise ValueError(f"unknown job kind: {kind}")
+        from hands.driver import caps_of
+        if kind in OS_INPUT_BLOCKED and caps_of(self.svc.browser).os_input:
+            raise ValueError(f"桌面驱动下不提供「{KIND_NAMES[kind]}」：请直接操作代理窗口，或切换到 CDP 驱动")
+        if kind == "expand" and self.svc.config.decision != "vlm":
+            raise ValueError("关联展开任务只能用大模型决策：请先在设置页把决策方式切到视觉大模型")
         if kind == "sample_real":
             if getattr(self.svc.browser, "driver", self.svc.config.driver) != "cdp":
                 raise ValueError("Playwright 驱动不支持真实网站采集（请切换到 CDP 驱动）")
@@ -107,12 +177,16 @@ class JobManager:
         self.current = job
         self._stop = False
         self._continue = asyncio.Event()
-        if kind in ("case", "demo"):
+        if kind in ("case", "demo", "expand"):
             self.tree = None
             self.steps = []
+        if kind == "expand":
+            job.title += " " + Path(params.get("type", "")).stem
+        if self.gate.paused is not None:            # 上一个任务遗留的暂停（例如次数用满后停止）
+            self.gate.resume("new_job")
         from . import compare as cmp
         runner = {"demo": self._demo, "case": self._case, "target": self._target, "manual": self._manual,
-                  "sample_real": self._sample_real,
+                  "sample_real": self._sample_real, "expand": self._expand,
                   "compare_capture": lambda j, p: cmp.job_capture(self, j, p),
                   "compare_model": lambda j, p: cmp.job_model(self, j, p)}[kind]
         self._task = asyncio.create_task(self._wrap(job, runner, params))
@@ -143,6 +217,9 @@ class JobManager:
         self._stop = True
         self.current.state = "stopping"
         self._continue.set()          # 等人工 / 手动模式的任务也能结束
+        self.confirm(False)           # 等确认的动作按拒绝处理
+        if self.gate.paused is not None:
+            self.gate.resume("stop")  # 暂停中也要能结束：恢复后循环开头看到停止标志
         self.svc.push_soon()
         return True
 
@@ -166,6 +243,10 @@ class JobManager:
 
     def _humanizer(self, seed: int, force_mouse: bool = False) -> Humanizer:
         cfg = HumanizeConfig.from_dict(self.svc.config.humanize)
+        from hands.driver import caps_of
+        if caps_of(self.svc.browser).os_input and not cfg.mouse.enabled:
+            from hands.config import desktop_humanize     # 桌面驱动：真实鼠标默认平滑、放慢移动
+            cfg = desktop_humanize(self.svc.config, cfg)
         if force_mouse:
             cfg.mouse.enabled = True
         cfg.seed = seed
@@ -259,7 +340,8 @@ class JobManager:
 
         runner = CaseRunner(self.svc.browser, self.svc.config, rec, on_step=on_step, log=self.svc.log,
                             should_stop=lambda: self._stop, before_action=self.before_action,
-                            handoff_fn=self._handoff, humanizer_factory=factory)
+                            handoff_fn=self._handoff, humanizer_factory=factory,
+                            gate=self.gate, confirm_fn=self._confirm_fn)
         res = await runner.run_case(case)
         report = rec.write_report([res], {"run_seed": run_seed, **HumanizeConfig.from_dict(
             self.svc.config.humanize).to_dict()})
@@ -267,6 +349,99 @@ class JobManager:
                       "report": f"{rec.root.name}/{report.name}", "human_handoffs": res.human_handoffs}
         if res.reason == "user_stopped":
             job.state = "stopped"
+
+    # ---------------- 关联展开（spec F15、F16） ----------------
+    def expand_types(self) -> list[dict]:
+        from hands.expand.spec import load_task_type
+        out = []
+        d = DATA_ROOT / "tasks"
+        for p in sorted(d.glob("*.yaml")) if d.exists() else []:
+            try:
+                t = load_task_type(p, self.svc.fixture_vars())
+                out.append({"file": p.name, "name": t.name, "title": t.title, "budget": t.budget,
+                            "params": [x for x in t.params if x.get("name") not in ("BASE",)],
+                            "start": t.start, "groups": [[k, v] for k, v in t.groups],
+                            "query": t.query, "search_url": t.search_url,
+                            "conditions": [{"id": c.id, "text": c.text} for c in t.conditions]})
+            except Exception as e:
+                out.append({"file": p.name, "name": p.stem, "title": p.stem, "error": str(e), "params": []})
+        return out
+
+    async def _expand(self, job: JobInfo, params: dict):
+        from hands.expand.run import ExpandRunner
+        from hands.expand.spec import load_task_type
+        d = DATA_ROOT / "tasks"
+        path = (d / str(params.get("type", ""))).resolve()
+        if d.resolve() not in path.parents or not path.exists():
+            raise FileNotFoundError(params.get("type"))
+        values = {k: v for k, v in (params.get("params") or {}).items() if v not in (None, "")}
+        if "${BASE}" in path.read_text(encoding="utf-8"):
+            self.svc.ensure_fixtures()
+            values.setdefault("BASE", self.svc.fixture_vars()["BASE"])
+        tt = load_task_type(path, values)
+        if params.get("budget"):
+            tt.budget = int(params["budget"])
+        rec = self._recorder(f"expand-{tt.name}")
+        run_seed = self._seed()
+
+        def factory(name, attempt):
+            return self._humanizer(derive_seed(run_seed, name, attempt))
+
+        def on_change(snap):
+            self.expand_snapshot = _jsonable(snap)
+            c = snap.get("counts", {})
+            job.progress = {"used": c.get("used"), "budget": c.get("budget"), "leaves": c.get("leaves"),
+                            "nodes": c.get("nodes"), "state": snap.get("state")}
+            self.svc.event("expand_changed", {"counts": c, "state": snap.get("state")})
+            self.svc.push_soon()
+
+        runner = ExpandRunner(self.svc.browser, self.svc.config, rec, tt, gate=self.gate,
+                              confirm_fn=self._confirm_fn, on_change=on_change, log=self.svc.log,
+                              handoff_fn=self._handoff, should_stop=lambda: self._stop,
+                              before_action=self.before_action, humanizer_factory=factory)
+        self.expand = runner
+        res = await runner.run()
+        self.expand_snapshot = _jsonable({**runner.snapshot(), "result": res})
+        job.result = {"passed": res["state"] == "done", "reason": f"末端叶子 {len(res['leaves'])} 个",
+                      "dir": f"{rec.root.name}/expand", "rank": res.get("rank")}
+        if self._stop:
+            job.state = "stopped"
+
+    def expand_edit(self, op: str, node: str | None = None, key: str | None = None,
+                    values: list | None = None, n: int | None = None) -> dict:
+        r = self.expand
+        if r is None or self.current is None or self.current.kind != "expand":
+            raise PermissionError("没有正在运行的关联展开任务")
+        g = self.gate
+        if g.paused is None and r.state != "waiting":
+            raise PermissionError("请先暂停，再修改任务树")
+        t = r.tree
+        if node is not None and node not in t.nodes:
+            raise ValueError(f"没有节点 {node}")
+        if op == "delete":
+            t.delete(node)
+        elif op == "set_terminal":
+            t.set_terminal(node)
+        elif op == "set_pending":
+            t.set_pending(node)
+        elif op == "add_group":
+            vs = [str(v).strip() for v in (values or []) if str(v).strip()]
+            if not key or not vs:
+                raise ValueError("加一组需要键和至少一个值")
+            t.add_group(str(key), vs)
+        elif op == "grant":
+            t.grant(int(n or 0))
+            if r.state == "waiting" and not t.exhausted:
+                g.resume("button")
+                g.arm(self._grace())
+        elif op == "finish":
+            t.finish("user")
+            if g.paused is not None:
+                g.resume("button")
+        else:
+            raise ValueError(f"未知操作：{op}")
+        r._save(f"edit:{op}")
+        return self.expand_snapshot or {}
 
     async def _handoff(self, browser, url, save_dir, input_fn=None, log=print):
         """面板版人工介入：不切有界面，在预览里手动处理，点"继续"后返回当前页面。"""

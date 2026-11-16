@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>夹具结果页</title></head>
+<body style="font:15px sans-serif;margin:30px">
+  <h1 id="t"></h1><p id="b"></p>
+  <script>
+    const p = new URLSearchParams(location.search);
+    fetch("script.json").then(r => r.json()).then(s => {
+      const hit = (s[(p.get("q") || "").toLowerCase()] || {results: []}).results[+p.get("i")] ||
+                  {title: "普通页面", snippet: "没有更多内容。"};
+      document.getElementById("t").textContent = hit.title;
+      document.getElementById("b").textContent = hit.snippet + " " + (hit.body || "");
+      document.title = hit.title;
+    });
+  </script>
+</body></html>

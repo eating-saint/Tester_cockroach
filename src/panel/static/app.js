@@ -5,7 +5,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const STATUS_TEXT = { idle: "未启动", running: "运行中", crash_restarting: "崩溃重启中", need_human: "需要人工", stopped: "已停止" };
 const WAIT_TEXT = { load: "页面加载（load）", network_quiet: "网络安静", after_action: "动作后等待", think: "思考时间", human: "等待人工" };
-const JOB_STATE = { running: "运行中", need_human: "需要人工", stopping: "停止中", done: "完成", failed: "失败", stopped: "已停止" };
+const JOB_STATE = { running: "运行中", need_human: "需要人工", stopping: "停止中", done: "完成", failed: "失败", stopped: "已停止",
+  need_confirm: "等你确认" };
 
 let S = null;              // 最新状态
 let INFO = null;           // 设置项表等静态信息
@@ -194,7 +195,8 @@ function render(st) {
   const b = st.browser, busy = st.busy, job = st.job;
   if (job && job.id !== prevJob && prevJob !== undefined) { lastAction = null; drawOverlay(); }
   $("lamp").className = "lamp " + b.status;
-  $("lampText").textContent = (STATUS_TEXT[b.status] || b.status) + `（驱动：${b.driver === "playwright" ? "Playwright" : "CDP"}）`;
+  $("lampText").textContent = (STATUS_TEXT[b.status] || b.status) +
+    `（驱动：${({playwright: "Playwright", desktop: "桌面"})[b.driver] || "CDP"}）`;
   $("crashes").textContent = b.crashes;
   const alive = b.status === "running" || b.status === "need_human";
   $("bStart").disabled = alive || b.need_chrome_path;
@@ -238,7 +240,24 @@ function render(st) {
       (p.max_steps ? `（第 ${p.step || 0} / ${p.max_steps} 步）` : "") + (p.seed != null ? ` 种子 ${p.seed}` : "");
   }
   renderSampleReal(st); renderDemo(st); renderCaseResult(st); renderTarget(st); renderTree(st); renderNet(st); renderSettingsState(st);
+  renderPauseConfirm(st);
   $("mode").textContent = uiMode === "target" ? "点选模式" : uiMode === "manual" ? "手动模式" : "";
+}
+const PAUSE_TEXT = { human_input: "检测到你在操作鼠标键盘", user: "你点了暂停", budget: "次数用满，等待决策（到任务树页处理）",
+  handoff: "人工处理中", edit: "正在修改任务树" };
+function renderPauseConfirm(st) {
+  const p = st.pause, c = st.confirm, caps = (st.browser && st.browser.capabilities) || {};
+  $("pauseBar").classList.toggle("hidden", !p || p.reason === "handoff");
+  if (p) {
+    $("pauseText").textContent = `${PAUSE_TEXT[p.reason] || p.reason}（${Math.round(p.elapsed_s || 0)} 秒）`;
+    $("bResume").disabled = p.reason === "budget";
+  }
+  $("confirmBar").classList.toggle("hidden", !c);
+  if (c) $("confirmText").textContent = c.text || "";
+  $("bPauseJob").disabled = !st.busy || !!p;
+  // 桌面驱动没有 CDP 推流：预览上的手动输入、点选目标不提供（直接操作真实窗口）
+  const noScreencast = caps.screencast === false;
+  for (const id of ["bTargetMode", "bManual", "bDemo", "bDemoReplay", "bSrStart"]) if (noScreencast) $(id).disabled = true;
 }
 function renderSampleReal(st) {
   const j = st.job, on = !!(j && j.kind === "sample_real" && st.busy);
@@ -471,6 +490,10 @@ click("bStop", () => api("POST", "/api/browser/stop").catch(() => {}));
 click("bRestart", () => api("POST", "/api/browser/restart").catch(() => {}));
 document.querySelectorAll("input[name=mode]").forEach((r) => r.addEventListener("change", () =>
   api("POST", "/api/browser/mode", { headless: r.value === "headless" }).catch(() => {})));
+$("bResume").addEventListener("click", () => api("POST", "/api/jobs/resume").catch((e) => toast(e.message, true)));
+$("bPauseJob").addEventListener("click", () => api("POST", "/api/jobs/pause").catch((e) => toast(e.message, true)));
+$("bAllow").addEventListener("click", () => api("POST", "/api/jobs/confirm", { allow: true }));
+$("bDeny").addEventListener("click", () => api("POST", "/api/jobs/confirm", { allow: false }));
 $("driverSel").addEventListener("change", () => {
   const d = $("driverSel").value;
   driverSwitching = true;

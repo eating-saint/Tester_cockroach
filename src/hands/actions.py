@@ -12,6 +12,7 @@ from .dom import DomReader, Element
 from .geometry import Box
 from .guard import Guard
 from .page import KEYS, WaitResult
+from .pause import Interrupted
 
 
 @dataclass
@@ -39,12 +40,19 @@ class ActionResult:
 
 
 class ActionExecutor:
-    def __init__(self, page, humanizer=None, capture_trajectory: bool = False, before_action=None, guard=None):
+    def __init__(self, page, humanizer=None, capture_trajectory: bool = False, before_action=None, guard=None,
+                 confirm=None, confirm_fn=None, gate=None):
         self.page = page
         self.guard = guard if guard is not None else Guard()   # 兜底拦截：始终启用，只能换清单，不能关闭
         self.humanizer = humanizer                  # None = 和 ver0 完全一样的直接点击、无干扰
         self.capture_trajectory = capture_trajectory
         self.before_action = before_action          # 可选钩子：每个动作开始前调用（面板用来让新设置生效）
+        # 需确认（spec F9）：confirm 为 None 或未开启时行为与之前完全一致
+        self.confirm = confirm
+        self.confirm_fn = confirm_fn
+        self.gate = gate
+        self.confirms: list[dict] = []
+        self._last_typed: Element | None = None     # 回车时的焦点元素（桌面驱动读不到 activeElement）
 
     # ---------------- 指纹 ----------------
     async def _fingerprint(self) -> tuple:
@@ -59,7 +67,9 @@ class ActionExecutor:
                 "(()=>{const a=document.activeElement;return a?(a.tagName+'#'+(a.id||'')):''})()")
         except CDPError:
             focus = None
-        return fp[0], fp[1], focus
+        vh = getattr(self.page, "visual_hash", None)    # 桌面驱动：截图指纹（无障碍树看不到的变化，如 canvas）
+        visual = await vh() if vh is not None else None
+        return fp[0], fp[1], focus, visual
 
     @staticmethod
     def _diff(before, after) -> list[str]:
@@ -70,6 +80,8 @@ class ActionExecutor:
             out.append("dom")
         if before[2] != after[2]:
             out.append("focus")
+        if len(before) > 3 and before[3] != after[3]:
+            out.append("visual")
         return out
 
     async def _run(self, fn, *, measure: bool = True, tool: str = "") -> ActionResult:
@@ -101,6 +113,9 @@ class ActionExecutor:
             return res
         except BrowserCrashed:
             raise
+        except Interrupted as e:
+            # 人一碰鼠标键盘 / 面板暂停：动作中途停下，下一步恢复后重新观察
+            return ActionResult(False, False, error="interrupted", data={"interrupted": True, "reason": str(e)})
         except (CDPError, LookupError, ValueError) as e:
             return ActionResult(False, False, error=f"{type(e).__name__}: {e}")
 
@@ -121,6 +136,9 @@ class ActionExecutor:
     async def _mouse_to(self, box: Box) -> tuple[float, float, dict | None, bytes | None]:
         """把鼠标移到目标框：开启轨迹时沿轨迹移动到框内随机落点，否则直接跳到中心。"""
         h = self.humanizer
+        cur = getattr(self.page, "cursor_css", None)
+        if h is not None and h.mouse_on and cur is not None:
+            h.jump_to(*cur())                  # 桌面驱动：轨迹从真实光标当前位置出发
         if h is None or not h.mouse_on:
             x, y = box.center()
             await self.page.mouse_move(x, y)
@@ -217,8 +235,40 @@ class ActionExecutor:
         hit = self.guard.check(el, form_action)
         return self._blocked(hit, tool) if hit else None
 
+    # ---------------- 需确认（spec F9） ----------------
+    async def _ask(self, req, tool: str) -> ActionResult | None:
+        if req is None:
+            return None
+        allow = bool(await self.confirm_fn(req)) if self.confirm_fn is not None else False
+        self.confirms.append({"t": time.time(), **req.to_dict(), "allowed": allow})
+        if allow:
+            return None
+        res = ActionResult(False, False, error=f"用户拒绝：{req.describe()}", data={"confirm": req.to_dict()})
+        STATUS.action_done({"tool": tool, "ok": False, "effective": False, "changes": [], "error": res.error,
+                            "trajectory": None, "elapsed_ms": 0})
+        return res
+
+    async def _check_target(self, el: Element, tool: str) -> ActionResult | None:
+        """兜底拦截（不可放行）→ 网格落点核对 → 需确认。"""
+        target = el
+        if getattr(el, "source", "dom") == "grid":
+            at = getattr(self.page, "element_at", None)
+            x, y = el.box.center()
+            hit = await at(x, y) if at is not None else None
+            if hit is None:
+                if self.confirm is not None and self.confirm.enabled:
+                    return await self._ask(self.confirm.unverifiable(tool, x, y), tool)
+                return None
+            target = hit
+        blocked = await self._guard(target, tool)
+        if blocked:
+            return blocked
+        if self.confirm is not None and self.confirm.enabled:
+            return await self._ask(self.confirm.check_click(target, tool), tool)
+        return None
+
     async def click(self, el: Element) -> ActionResult:
-        blocked = await self._guard(el, "click")
+        blocked = await self._check_target(el, "click")
         if blocked:
             return blocked
 
@@ -232,7 +282,7 @@ class ActionExecutor:
     async def open_tab(self, el: Element, switch: bool = False) -> ActionResult:
         """Ctrl+点击：在新标签页打开链接，原标签页不关。switch=True 时切到新标签页继续（原页仍保留），
         否则留在原页（新标签页在后台）。"""
-        blocked = await self._guard(el, "open_tab")
+        blocked = await self._check_target(el, "open_tab")
         if blocked:
             return blocked
 
@@ -258,7 +308,26 @@ class ActionExecutor:
                                 data={"x": x, "y": y, "switched": False}, trajectory=traj, trajectory_png=png)
         return await self._run(go, tool="open_tab")
 
+    async def right_click(self, el: Element) -> ActionResult:
+        """右键弹出菜单（桌面驱动）；菜单项在下一步的元素清单里。"""
+        blocked = await self._check_target(el, "right_click")
+        if blocked:
+            return blocked
+
+        async def go():
+            box = await self._locate_box(el)
+            x, y, traj, png = await self._mouse_to(box)
+            await self.page.mouse_click(x, y, button="right")
+            wait = await self._settle()
+            return ActionResult(True, False, wait=wait, data={"x": x, "y": y}, trajectory=traj, trajectory_png=png)
+        return await self._run(go, tool="right_click")
+
     async def type(self, el: Element, text: str) -> ActionResult:
+        if getattr(el, "is_password", False) and self.confirm is not None and self.confirm.enabled:
+            # 永远不往密码框里输入：转人工（runner 看到 data.handoff 后走人工介入）
+            return ActionResult(False, False, error="不往密码框输入，已转人工", data={"handoff": "login"})
+        self._last_typed = el
+
         async def go():
             box = await self._locate_box(el)
             _, _, traj, png = await self._mouse_click(box)
@@ -287,6 +356,10 @@ class ActionExecutor:
             hit = self.guard.path_hit(fa if isinstance(fa, str) else None, "form_action")
             if hit:
                 return self._blocked(hit, "press")
+            if self.confirm is not None and self.confirm.enabled:
+                rejected = await self._ask(self.confirm.check_enter(self._last_typed), "press")
+                if rejected:
+                    return rejected
 
         async def go():
             if key not in KEYS:

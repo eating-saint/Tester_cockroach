@@ -34,9 +34,23 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     "read_links": ToolSpec("read", {}, {"href_contains": str, "href_excludes": str, "title_min_len": int}),
     # 内容抽取（ver1）：items 每项 {field, value, element?}；执行时回查 element（省略则查正文）里有没有 value
     "extract": ToolSpec("read", {"items": list}),
+    # 桌面驱动专用（能力声明里有对应开关时才可用）：右键弹出菜单；请求下一步叠加网格编号
+    "right_click": ToolSpec("action", {"element": str}),
+    "show_grid": ToolSpec("read"),
 }
 
-ELEMENT_ARGS = ("click", "open_tab", "type", "read_text")   # 这些工具的 element 参数指向本步页面里的元素
+ELEMENT_ARGS = ("click", "open_tab", "type", "read_text", "right_click")   # element 参数指向本步页面里的元素
+
+CAPABILITY_TOOLS = {"right_click": "right_click", "show_grid": "grid"}     # 工具 → 需要的能力开关
+
+
+def tools_for(caps=None) -> dict[str, ToolSpec]:
+    """按驱动能力过滤工具表。caps 为 None 时按默认能力（CDP / Playwright）：不含桌面专用工具。"""
+    if caps is None:
+        from .driver import Capabilities
+        caps = Capabilities()
+    return {k: v for k, v in TOOL_REGISTRY.items()
+            if k not in CAPABILITY_TOOLS or getattr(caps, CAPABILITY_TOOLS[k], False)}
 
 
 def _check_extract_items(items: list):
@@ -68,8 +82,9 @@ class Decision:
         return {"decision": self.decision, "reason": self.reason, "tool": self.tool, "arguments": self.arguments}
 
 
-def validate_decision(raw: str, page: "PageState | None" = None) -> Decision:
-    """page 不为 None 时，再检查决策里引用的元素在本步页面上存在（ver1：编号失效判为不合法）。"""
+def validate_decision(raw: str, page: "PageState | None" = None, tools: dict | None = None) -> Decision:
+    """page 不为 None 时，再检查决策里引用的元素在本步页面上存在（ver1：编号失效判为不合法）。
+    tools：本驱动可用的工具（tools_for(caps)）；None = 默认能力。"""
     try:
         obj = json.loads(raw)
     except (TypeError, ValueError) as e:
@@ -85,6 +100,8 @@ def validate_decision(raw: str, page: "PageState | None" = None) -> Decision:
     spec = TOOL_REGISTRY.get(tool)
     if spec is None:
         raise DecisionInvalid(f"unregistered tool: {tool!r}")
+    if tool not in (tools if tools is not None else tools_for(None)):
+        raise DecisionInvalid(f"tool not supported by this driver: {tool!r}")
     args = obj["arguments"]
     if not isinstance(args, dict):
         raise DecisionInvalid("arguments must be an object")
@@ -128,6 +145,7 @@ class DecisionInput:
     step_dir: Path | None = None                       # 本步目录：大模型决策器从这里读截图、写记录
     brief: dict = field(default_factory=dict)          # 任务书附加信息：{hints: [...], extract_fields: [...]}
     last_error: str | None = None                      # 上一次决策不合法的原因（重问时带给决策器）
+    caps: Any = None                                   # 驱动能力（driver.Capabilities）；None = 默认
 
 
 class Decider(Protocol):
@@ -141,7 +159,8 @@ async def decide_with_retry(decider: Decider, inp: DecisionInput, max_tries: int
         raw = await decider.decide(inp)
         raws.append(raw)
         try:
-            return validate_decision(raw, getattr(inp, "page", None)), raws, i
+            return validate_decision(raw, getattr(inp, "page", None),
+                                     tools_for(getattr(inp, "caps", None))), raws, i
         except DecisionInvalid as e:
             if isinstance(inp, DecisionInput):
                 inp = dataclasses.replace(inp, last_error=str(e))

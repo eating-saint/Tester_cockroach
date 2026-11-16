@@ -43,6 +43,16 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path == "/api/page":
             n = int(q.get("n", ["1"])[0])
             return self._json({"items": [f"第{'一二三四五'[n - 1] if n <= 5 else n}页-{i}" for i in range(1, 11)]})
+        if u.path == "/api/slowpage":           # 桌面驱动夹具：服务端慢响应的整页（导航本身慢）
+            time.sleep(int(q.get("ms", ["3000"])[0]) / 1000)
+            body = ("<!doctype html><html lang='zh'><head><meta charset='utf-8'><title>慢页面</title></head>"
+                    "<body style='font:16px sans-serif'><h1 id='done'>慢页面已加载</h1>"
+                    "<button>慢页面按钮</button></body></html>").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
         if u.path == "/missing":
             return self.send_error(404, "missing")
         return super().do_GET()

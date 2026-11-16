@@ -204,8 +204,9 @@ class PanelService:
         self.push_soon()
 
     async def _auto_preview(self):
-        if self.browser is not None and self.browser.headless:
-            self.preview.want_on = True
+        from hands.driver import caps_of
+        if self.browser is not None and (self.browser.headless or not caps_of(self.browser).screencast):
+            self.preview.want_on = True               # 桌面驱动：默认开缩略预览
         await self.preview.sync()
 
     async def front(self):
@@ -370,16 +371,19 @@ class PanelService:
             self.status = "running"
 
     def browser_state(self) -> dict:
+        from hands.driver import caps_of
         b = self.browser
         status = self.status
         if self.jobs.current is not None and self.jobs.current.state == "need_human":
             status = "need_human"
+        caps = caps_of(b).to_dict() if b is not None else None
         if b is not None and status == "running" and not b.is_alive():
             status = "crash_restarting" if b.crashed.is_set() else "stopped"
         return {"status": status, "headless": (b.headless if b else self.config.headless),
                 "crashes": len(b.crash_history) if b else 0, "pid": b.pid if b and b.is_alive() else None,
                 "need_chrome_path": self.need_chrome_path,
-                "driver": b.driver if b is not None else self.config.driver, "driver_error": self.driver_error}
+                "driver": b.driver if b is not None else self.config.driver, "driver_error": self.driver_error,
+                "capabilities": caps}
 
     def state(self) -> dict:
         b = self.browser
@@ -409,6 +413,10 @@ class PanelService:
                          "version": self.settings.version},
             "settings_pending": bool(self.settings.pending),
             "seed": (job or {}).get("progress", {}).get("seed") if job else None,
+            "pause": self.jobs.gate.paused.to_dict() if self.jobs.gate.paused else None,
+            "confirm": (self.jobs.current.confirm_pending if self.jobs.current else None),
+            "expand": ({"state": self.jobs.expand.state, "counts": self.jobs.expand.tree.counts()}
+                       if self.jobs.expand is not None else None),
         }
 
     def static_info(self) -> dict:

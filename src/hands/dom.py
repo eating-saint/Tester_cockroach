@@ -30,16 +30,23 @@ class Element:
     in_shadow: bool = False
     _ref: NodeRef | None = field(default=None, repr=False)
     context: str = ""          # 所在“块”的文字（如搜索结果的标题 + 摘要），见 _Doc.context_of
+    source: str = "dom"        # dom / uia（桌面驱动无障碍树）/ grid（网格兜底）
+    is_password: bool = False  # 密码框：值恒为 None，不读不记
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id, "role": self.role, "name": self.name, "text": self.text,
-            "tag": self.tag, "href": self.href, "value": self.value,
+            "tag": self.tag, "href": self.href, "value": None if self.is_password else self.value,
             "box": self.box.to_dict(), "visible": self.visible,
             "in_viewport": self.in_viewport, "enabled": self.enabled,
             "frame_path": list(self.frame_path), "in_shadow": self.in_shadow,
             "context": self.context[:300],
         }
+        if self.source != "dom":
+            d["source"] = self.source
+        if self.is_password:
+            d["is_password"] = True
+        return d
 
 
 INTERACTIVE_ROLES = {"button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio",

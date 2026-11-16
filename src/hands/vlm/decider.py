@@ -11,21 +11,26 @@ import re
 from pathlib import Path
 
 from ..config import vlm_settings
-from ..decision import TOOL_REGISTRY
+from ..decision import tools_for
 from .client import OllamaClient
 from .describe_cache import DESCRIBE_SCHEMA, REGION_KINDS, POSITIONS, DescribeCache, PageDescription
 from .digest import PageDigest
 from .prompts import PromptBook
 
-DECIDE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "reason": {"type": "string"},
-        "tool": {"type": "string", "enum": list(TOOL_REGISTRY)},
-        "arguments": {"type": "object"},
-    },
-    "required": ["reason", "tool", "arguments"],
-}
+def decide_schema(caps=None) -> dict:
+    """工具名枚举按驱动能力过滤：CDP / Playwright 下与之前完全相同。"""
+    return {
+        "type": "object",
+        "properties": {
+            "reason": {"type": "string"},
+            "tool": {"type": "string", "enum": list(tools_for(caps))},
+            "arguments": {"type": "object"},
+        },
+        "required": ["reason", "tool", "arguments"],
+    }
+
+
+DECIDE_SCHEMA = decide_schema(None)
 DESCRIBE_TRIES = 3          # 描述输出不合格式：首次 + 重试 2 次
 
 
@@ -141,6 +146,31 @@ class VlmDecider:
         if inp.last_error:
             last_error = f"【上一次的问题】你上一次的回答不合法：{_explain_error(inp.last_error)}。请改正后重新回答。\n"
         overlay = "【提示】页面有弹窗遮挡：请先关闭弹窗或遮罩，再继续任务。\n" if desc.overlay else ""
+        text = self._render_decide_base(t, st, brief, children, last_error, overlay, digest, desc)
+        caps = getattr(inp, "caps", None)
+        if caps is not None and (getattr(caps, "right_click", False) or getattr(caps, "grid", False)) \
+                and self._desktop_tools_relevant(inp):
+            # 桌面驱动专用工具：插在工具清单末尾；CDP / Playwright 下提示词与之前逐字相同
+            extra = self.pb.text("tools_desktop").rstrip("\n")
+            marker = "\n\n做法提示："
+            text = text.replace(marker, "\n" + extra + marker, 1) if marker in text else text + "\n" + extra + "\n"
+        return text
+
+    @staticmethod
+    def _desktop_tools_relevant(inp) -> bool:
+        """桌面工具说明只在用得上时才放进提示词：实测（2026-11-15，v02 第 5 步重放各 6 次）一直带着这几行，
+        4b 在该抽取的页面上改选 read_text（6/6），去掉后选 extract（6/6）。"""
+        els = getattr(getattr(inp, "page", None), "elements", None) or []
+        if any(getattr(e, "source", "") == "grid" or getattr(e, "role", "") == "menuitem" for e in els):
+            return True
+        recent = list(getattr(getattr(inp, "task", None), "recent_steps", None) or [])
+        if recent and recent[-1].get("tool") in ("right_click", "show_grid"):
+            return True
+        last2 = recent[-2:]
+        return len(last2) == 2 and all(s.get("tool") in ("click", "type", "scroll") and not s.get("effective")
+                                       for s in last2)
+
+    def _render_decide_base(self, t, st, brief, children, last_error, overlay, digest, desc) -> str:
         return self.pb.render(
             "decide", goal=t.goal, done_when=t.done_when or "（未写明）",
             hints="、".join(map(str, brief.get("hints") or [])) or "无",
@@ -199,10 +229,11 @@ class VlmDecider:
         suffix = "" if self._step["tries"] == 1 else f"_try{self._step['tries']}"
         system = self.pb.render("system")
         user = self._render_decide(inp, digest, desc)
+        schema = decide_schema(getattr(inp, "caps", None))
         _dump(vdir / f"request{suffix}.json", {
-            "system": system, "user": user, "images": ["annotated.png"], "schema": DECIDE_SCHEMA,
+            "system": system, "user": user, "images": ["annotated.png"], "schema": schema,
             "model": self.client.model, "options": {k: self.s[k] for k in ("temperature", "seed", "num_ctx")}})
-        r = await self.client.chat(system, user, [digest.annotated_png], DECIDE_SCHEMA)
+        r = await self.client.chat(system, user, [digest.annotated_png], schema)
         out = r.text
         mapped = None
         try:

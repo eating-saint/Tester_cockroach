@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>登录 - 夹具商城</title></head>
+<body style="font:16px sans-serif;margin:30px">
+  <h1>登录</h1>
+  <p><input aria-label="用户名" id="u" placeholder="用户名"></p>
+  <p><input aria-label="密码" id="p" type="password" placeholder="密码"></p>
+  <p><button id="go">登录</button></p>
+  <p id="msg"></p>
+  <script>
+    document.getElementById("go").onclick = () => {
+      document.getElementById("msg").textContent = "已提交登录：" + document.getElementById("u").value;
+    };
+  </script>
+</body></html>

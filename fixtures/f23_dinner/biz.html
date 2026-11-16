@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>餐厅详情</title></head>
+<body style="font:15px sans-serif;margin:30px">
+  <h1 id="n"></h1><p id="p"></p><p id="r"></p><h3>菜单</h3><ul id="m"></ul>
+  <script>
+    const id = new URLSearchParams(location.search).get("id");
+    fetch("data.json").then(r => r.json()).then(d => {
+      const r = Object.values(d.cuisines).flat().find(x => x.id === id);
+      if (!r) { document.getElementById("n").textContent = "没有这家店"; return; }
+      document.title = r.name + " - 夹具点评";
+      document.getElementById("n").textContent = r.name;
+      document.getElementById("p").textContent = "价位：" + (r.price || "未标注");
+      document.getElementById("r").textContent = "评分：" + r.rating;
+      document.getElementById("m").innerHTML = r.menu.map(x => `<li>${x}</li>`).join("");
+    });
+  </script>
+</body></html>

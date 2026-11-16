@@ -52,6 +52,27 @@ class ScriptedClient:
         return None
 
 
+@dataclass
+class FuncClient:
+    """替身：按请求内容决定回答（fn(system, user, images, schema) -> str）。描述缓存会改变调用顺序时用它。"""
+    fn: object = None
+    model: str = "scripted-fn"
+    calls: list = field(default_factory=list)
+
+    async def chat(self, system, user, images, schema) -> ChatResult:
+        self.calls.append({"user": user, "images": len(images)})
+        r = self.fn(system, user, images, schema)
+        if isinstance(r, BaseException):
+            raise r
+        return ChatResult(text=r)
+
+    async def check(self) -> None:
+        return None
+
+    async def vram(self) -> dict | None:
+        return None
+
+
 class OllamaClient:
     def __init__(self, settings: dict):
         self.s = dict(settings)

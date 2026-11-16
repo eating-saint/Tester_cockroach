@@ -1,0 +1,27 @@
+# 关联展开任务：变形金刚角色（Google 真实站点）
+# 【草稿，待用户确认】初始键值组、搜索词拼法、候选来源、关联条件与阈值按 2026-11-14 对话里的例子起草，
+# 验收（AC20 / checklist E2）前与用户逐项确认后再改。
+kind: expand
+name: transformers
+title: 变形金刚角色（Google）
+search_url: https://www.google.com/search?q={q}
+query: "{value} transformers"
+start: optimus
+groups:
+  - optimus: [galvatron, megatron, starscream]
+  - megatron: [starscream, shockwave, soundwave]
+  - movie: [fallen, decepticon, autobot]
+sources:
+  - 搜索结果的标题和摘要
+  - 页面右侧或底部的「相关搜索」「人们还搜索了」
+conditions:
+  - id: c1
+    text: 第一页搜索结果中至少 {ratio} 的标题或摘要都提到同一个角色名，就把那个角色作为当前词的值（当前词成为新的键）
+    params: {ratio: 0.8}
+  - id: c2
+    text: 「相关搜索」里出现的角色名，如果它本身是已知的键或值，就加到当前词下面
+budget: 120
+keep_tabs: 30
+read_per_node: 0
+node_steps: 8
+output: {type: leaves}

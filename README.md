@@ -29,6 +29,36 @@ python run_panel_tests.py --driver playwright                   # 面板验收
 - 控制面板顶部"驱动"下拉框可切换（有任务运行时不能切换），"保存为默认"会写回 `config.yaml`。
 - 差异与性能对比见 `docs/playwright/acceptance.md`、`docs/playwright/perf.md`。
 
+### 驱动：桌面（默认浏览器 Profile）
+
+第三种驱动，与 CDP、Playwright 并列。在你平常用的 Chrome（默认 Profile，登录状态和 Cookie 都在）里**新开一个代理窗口**，
+用"窗口截图 + Windows 无障碍树"看页面、用系统鼠标（沿用轨迹模块）、滚轮、左右键和键盘操作；你原有的窗口和标签页不碰。
+
+```bash
+pip install -e .[desktop]                                              # 安装 comtypes（读无障碍树）
+python -m hands run cases/v01_shop_extract.yaml --driver desktop --decision vlm
+```
+
+- **人一碰鼠标键盘就暂停**：在面板点"恢复"或命令行回车继续（`desktop.idle_resume_s` 可设停手 N 秒自动恢复）。恢复后重新截图观察。
+- **需确认**：加入购物车、收藏、写评价、预订、非搜索表单提交等先问"允许一次 / 拒绝"；登录页、密码框、短信验证码、验证码、打印 / 保存对话框一律暂停转人工；
+  **永远不往密码框里输入**；下单、支付仍由兜底拦截硬拦。
+- 无障碍树读不到的区域（如画布）会叠加网格编号让模型选格子；落点查不到元素时这次点击也要确认。
+- 只支持 Windows、默认浏览器为 Chrome；只能有界面运行。实测结论见 `docs/desktop/probe.md`。
+
+### 关联展开任务
+
+从一组「键 <值, …>」出发：值是键就分叉，不是键就搜一次、留下标签页、成为叶子；4b 按任务类型里写的关联条件
+（如"第一页 ≥80% 的结果都提到某个词""收藏榜 / 消费榜第一"）增减节点，直到全部是末端叶子。**搜索 + 阅读满 120 次（可改）就停下等你决定**。
+
+```bash
+python -m hands expand tasks/fixture_dinner.yaml --driver cdp --decision vlm --param n=2     # 夹具版点餐
+python -m hands expand tasks/fixture_transformers.yaml --driver desktop --decision vlm      # 夹具版变形金刚
+```
+
+- 任务类型放在 `tasks/*.yaml`（初始键值组、搜索方式、候选来源、关联条件、次数上限、输出方式），由你和 Claude 一起写；运行时的 4b 只增减节点。
+- 面板顶部"任务树"页：发起任务、看树和变化曲线（末端叶子数、节点数、已用次数）、暂停后删除节点 / 改成叶子 / 改回待查 / 加一组 / 再给 N 次 / 结束并输出。
+- 点餐类结果按价位（`$`～`$$$$`、人均金额、价格区间统一成档位）从低到高、同档评分从高到低排序，只排页面上查得到依据的条目。
+
 ### 决策方式：规则决策（默认）/ 视觉大模型（ver1）
 
 视觉大模型在本机通过 Ollama 运行，截图和页面内容不离开这台电脑。每步先让模型描述页面构成（页面没变就复用），
@@ -58,4 +88,5 @@ python tools/replay_step.py runs/<运行>/<用例>/step_003 -n 10   # 用存下�
 - `docs/panel/spec.md` → `plan.md` → `task.md` → `checklist.md` → `acceptance.md`：控制面板（`python -m panel`）
 - `docs/playwright/spec.md` → `plan.md` → `task.md` → `checklist.md` → `acceptance.md`：Playwright 驱动
 - `docs/ver1/spec.md` → `plan.md` → `task.md` → `checklist.md`：视觉大模型决策；`bench.md`、`compare.md`、`prompt_log.md` 为实测记录
+- `docs/desktop/spec.md` → `plan.md` → `task.md` → `checklist.md`：桌面驱动与关联展开任务；`probe.md` 为先行验证
 - 根目录 `*_v1.txt`：整体技术方案与调通方案

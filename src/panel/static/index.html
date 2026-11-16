@@ -24,10 +24,12 @@
       <select id="driverSel">
         <option value="cdp">CDP</option>
         <option value="playwright">Playwright</option>
+        <option value="desktop">桌面（默认浏览器）</option>
       </select>
     </label>
     <span class="muted">崩溃 <b id="crashes">0</b> 次</span>
     <a href="/compare" target="_blank" title="ver1：比对模型和人看到的页面">人眼比对</a>
+    <a href="/tree" target="_blank" title="关联展开任务：发起、查看与修改任务树">任务树</a>
     <span class="spacer"></span>
     <span id="running" class="running"></span>
   </div>
@@ -46,6 +48,15 @@
     <b>需要人工：</b><span id="humanText"></span>
     　请直接在预览里完成验证（已切到手动模式），完成后点
     <button id="bContinue" class="primary">继续</button>
+  </div>
+  <div id="pauseBar" class="banner warn hidden">
+    <b>已暂停：</b><span id="pauseText"></span>
+    <button id="bResume" class="primary">恢复</button>
+  </div>
+  <div id="confirmBar" class="banner alert hidden">
+    <b>需要你确认：</b><span id="confirmText"></span>
+    <button id="bAllow" class="primary">允许一次</button>
+    <button id="bDeny" class="danger">拒绝</button>
   </div>
 </header>
 
@@ -122,6 +133,7 @@
         </div>
       </fieldset>
       <div class="row">
+        <button id="bPauseJob">暂停</button>
         <button id="bStopJob" class="danger">停止当前任务</button>
         <span id="jobLine" class="muted"></span>
       </div>

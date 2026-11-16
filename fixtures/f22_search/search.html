@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>夹具搜索</title>
+<style>
+  body{font:14px sans-serif;margin:0;display:flex;gap:40px;padding:20px}
+  #main{width:640px} #side{width:260px;border-left:1px solid #ddd;padding-left:16px}
+  .r{margin:0 0 14px} .r a{font-size:16px} .r p{margin:2px 0;color:#444}
+</style></head>
+<body>
+  <div id="main">
+    <form action="search.html"><input type="search" name="q" aria-label="搜索" id="q" style="width:400px"> <button>搜索</button></form>
+    <h2 id="head"></h2>
+    <div id="results" role="list"></div>
+  </div>
+  <aside id="side"><h3>相关搜索</h3><div id="related"></div></aside>
+  <script>
+    const q = (new URLSearchParams(location.search).get("q") || "").trim();
+    document.getElementById("q").value = q;
+    document.title = (q || "夹具搜索") + " - 夹具搜索";
+    document.getElementById("head").textContent = "「" + q + "」的搜索结果";
+    fetch("script.json").then(r => r.json()).then(s => {
+      const hit = s[q.toLowerCase()] || {results: [], related: []};
+      const res = hit.results.length ? hit.results :
+        Array.from({length: 10}, (_, i) => ({title: q + " 无关结果 " + (i + 1), snippet: "与本词关系不大的普通页面。"}));
+      const box = document.getElementById("results");
+      res.forEach((r, i) => {
+        const d = document.createElement("div"); d.className = "r"; d.setAttribute("role", "listitem");
+        d.innerHTML = `<a href="result.html?q=${encodeURIComponent(q)}&i=${i}"></a><p></p>`;
+        d.querySelector("a").textContent = r.title; d.querySelector("p").textContent = r.snippet;
+        box.appendChild(d);
+      });
+      const rel = document.getElementById("related");
+      (hit.related || []).forEach(w => {
+        const a = document.createElement("a"); a.href = "search.html?q=" + encodeURIComponent(w);
+        a.textContent = w; a.style.display = "block"; rel.appendChild(a);
+      });
+      if (!(hit.related || []).length) rel.textContent = "（无）";
+    });
+  </script>
+</body></html>

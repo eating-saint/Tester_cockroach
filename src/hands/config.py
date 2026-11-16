@@ -41,9 +41,46 @@ class Config:
     decision: str = "rule"                         # rule = 规则决策；vlm = 视觉大模型决策（ver1）
     vlm: dict = field(default_factory=dict)        # 大模型设置，缺项用 VLM_DEFAULTS
     guard: dict = field(default_factory=dict)      # 兜底拦截清单增删：add_words / remove_words / add_paths / remove_paths
+    desktop: dict = field(default_factory=dict)    # 桌面驱动设置，缺项用 DESKTOP_DEFAULTS
+    confirm: dict = field(default_factory=dict)    # 需确认：enabled（None = 桌面开、其他关）、各组词增删
 
 
-DRIVERS = ("cdp", "playwright")
+DRIVERS = ("cdp", "playwright", "desktop")
+
+DESKTOP_DEFAULTS = {
+    "window": [100, 60, 1280, 860],   # 代理窗口屏幕位置与大小（物理像素）：x, y, w, h
+    "stable_ms": 600,                 # 截图保持不变多久算稳定
+    "settle_timeout_s": 20,           # 等待稳定的总超时
+    "commit_wait_s": 1.0,             # 动作后观察网址是否变化的时长
+    "uia_timeout_s": 5,               # 读一次无障碍树的超时
+    "grid": {"cols": 12, "rows": 8, "min_elements": 3},
+    "wheel_px_per_notch": 100,        # 一格滚轮大约滚动多少 CSS 像素
+    "idle_resume_s": 0,               # 人停手 N 秒自动恢复；0 = 只能手动恢复
+    "resume_grace_s": 2,              # 恢复后宽限期：期内的人工输入不触发暂停
+    "thumb_interval_s": 1.0,          # 面板缩略预览间隔
+    # 真实鼠标的移动速度：桌面驱动默认走平滑轨迹，慢一点让人看得清（humanize.mouse 没开时也生效）
+    "mouse": {"min_duration_ms": 800, "max_duration_ms": 1600},
+    "click_pause_ms": 300,            # 鼠标到位后、按下前停一下
+}
+
+
+def desktop_settings(cfg: "Config") -> dict:
+    """桌面驱动设置：默认值合并 config.yaml 里写的值（grid 段逐项合并）。"""
+    user = dict(cfg.desktop or {})
+    grid = {**DESKTOP_DEFAULTS["grid"], **(user.pop("grid", None) or {})}
+    mouse = {**DESKTOP_DEFAULTS["mouse"], **(user.pop("mouse", None) or {})}
+    return {**DESKTOP_DEFAULTS, **user, "grid": grid, "mouse": mouse}
+
+
+def desktop_humanize(config: "Config", hcfg):
+    """桌面驱动：鼠标默认走平滑轨迹，速度取 desktop.mouse（让人看得清）。返回新的 HumanizeConfig。"""
+    import copy
+    h = copy.deepcopy(hcfg)
+    m = desktop_settings(config)["mouse"]
+    h.mouse.enabled = True
+    h.mouse.min_duration_ms = int(m["min_duration_ms"])
+    h.mouse.max_duration_ms = int(m["max_duration_ms"])
+    return h
 DECISIONS = ("rule", "vlm")
 
 VLM_DEFAULTS = {
@@ -110,6 +147,8 @@ def load_config(path: str | os.PathLike | None = "config.yaml", **overrides) -> 
         raise ValueError(f"未知决策方式 decision={cfg.decision!r}，可选：{' / '.join(DECISIONS)}")
     cfg.vlm = dict(cfg.vlm or {})
     cfg.guard = dict(cfg.guard or {})
+    cfg.desktop = dict(cfg.desktop or {})
+    cfg.confirm = dict(cfg.confirm or {})
     if not cfg.chrome_path:
         cfg.chrome_path = find_chrome()
     return cfg

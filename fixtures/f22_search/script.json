@@ -1,0 +1,461 @@
+{
+ "optimus": {
+  "results": [
+   {
+    "title": "optimus 与 galvatron 的故事（第 1 篇）",
+    "snippet": "本篇讲 optimus 和 galvatron 的关系。"
+   },
+   {
+    "title": "optimus 与 megatron 的故事（第 2 篇）",
+    "snippet": "本篇讲 optimus 和 megatron 的关系。"
+   },
+   {
+    "title": "optimus 与 starscream 的故事（第 3 篇）",
+    "snippet": "本篇讲 optimus 和 starscream 的关系。"
+   },
+   {
+    "title": "optimus 与 galvatron 的故事（第 4 篇）",
+    "snippet": "本篇讲 optimus 和 galvatron 的关系。"
+   },
+   {
+    "title": "optimus 与 megatron 的故事（第 5 篇）",
+    "snippet": "本篇讲 optimus 和 megatron 的关系。"
+   },
+   {
+    "title": "optimus 与 starscream 的故事（第 6 篇）",
+    "snippet": "本篇讲 optimus 和 starscream 的关系。"
+   },
+   {
+    "title": "optimus 与 galvatron 的故事（第 7 篇）",
+    "snippet": "本篇讲 optimus 和 galvatron 的关系。"
+   },
+   {
+    "title": "optimus 与 megatron 的故事（第 8 篇）",
+    "snippet": "本篇讲 optimus 和 megatron 的关系。"
+   },
+   {
+    "title": "optimus 与 starscream 的故事（第 9 篇）",
+    "snippet": "本篇讲 optimus 和 starscream 的关系。"
+   },
+   {
+    "title": "optimus 与 galvatron 的故事（第 10 篇）",
+    "snippet": "本篇讲 optimus 和 galvatron 的关系。"
+   }
+  ],
+  "related": [
+   "megatron",
+   "starscream"
+  ]
+ },
+ "galvatron": {
+  "results": [
+   {
+    "title": "galvatron 资料（第 1 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 2 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 3 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 4 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 5 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 6 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 7 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 8 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 9 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   },
+   {
+    "title": "galvatron 资料（第 10 篇）",
+    "snippet": "galvatron 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ },
+ "megatron": {
+  "results": [
+   {
+    "title": "megatron 与 starscream 的故事（第 1 篇）",
+    "snippet": "本篇讲 megatron 和 starscream 的关系。"
+   },
+   {
+    "title": "megatron 与 shockwave 的故事（第 2 篇）",
+    "snippet": "本篇讲 megatron 和 shockwave 的关系。"
+   },
+   {
+    "title": "megatron 与 soundwave 的故事（第 3 篇）",
+    "snippet": "本篇讲 megatron 和 soundwave 的关系。"
+   },
+   {
+    "title": "megatron 与 starscream 的故事（第 4 篇）",
+    "snippet": "本篇讲 megatron 和 starscream 的关系。"
+   },
+   {
+    "title": "megatron 与 shockwave 的故事（第 5 篇）",
+    "snippet": "本篇讲 megatron 和 shockwave 的关系。"
+   },
+   {
+    "title": "megatron 与 soundwave 的故事（第 6 篇）",
+    "snippet": "本篇讲 megatron 和 soundwave 的关系。"
+   },
+   {
+    "title": "megatron 与 starscream 的故事（第 7 篇）",
+    "snippet": "本篇讲 megatron 和 starscream 的关系。"
+   },
+   {
+    "title": "megatron 与 shockwave 的故事（第 8 篇）",
+    "snippet": "本篇讲 megatron 和 shockwave 的关系。"
+   },
+   {
+    "title": "megatron 与 soundwave 的故事（第 9 篇）",
+    "snippet": "本篇讲 megatron 和 soundwave 的关系。"
+   },
+   {
+    "title": "megatron 与 starscream 的故事（第 10 篇）",
+    "snippet": "本篇讲 megatron 和 starscream 的关系。"
+   }
+  ],
+  "related": [
+   "shockwave"
+  ]
+ },
+ "starscream": {
+  "results": [
+   {
+    "title": "starscream 资料（第 1 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 2 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 3 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 4 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 5 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 6 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 7 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 8 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 9 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   },
+   {
+    "title": "starscream 资料（第 10 篇）",
+    "snippet": "starscream 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ },
+ "shockwave": {
+  "results": [
+   {
+    "title": "shockwave 资料（第 1 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 2 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 3 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 4 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 5 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 6 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 7 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 8 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 9 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   },
+   {
+    "title": "shockwave 资料（第 10 篇）",
+    "snippet": "shockwave 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ },
+ "soundwave": {
+  "results": [
+   {
+    "title": "soundwave 资料（第 1 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 2 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 3 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 4 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 5 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 6 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 7 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 8 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 9 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   },
+   {
+    "title": "soundwave 资料（第 10 篇）",
+    "snippet": "soundwave 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ },
+ "movie": {
+  "results": [
+   {
+    "title": "movie 与 fallen 的故事（第 1 篇）",
+    "snippet": "本篇讲 movie 和 fallen 的关系。"
+   },
+   {
+    "title": "movie 与 decepticon 的故事（第 2 篇）",
+    "snippet": "本篇讲 movie 和 decepticon 的关系。"
+   },
+   {
+    "title": "movie 与 autobot 的故事（第 3 篇）",
+    "snippet": "本篇讲 movie 和 autobot 的关系。"
+   },
+   {
+    "title": "movie 与 fallen 的故事（第 4 篇）",
+    "snippet": "本篇讲 movie 和 fallen 的关系。"
+   },
+   {
+    "title": "movie 与 decepticon 的故事（第 5 篇）",
+    "snippet": "本篇讲 movie 和 decepticon 的关系。"
+   },
+   {
+    "title": "movie 与 autobot 的故事（第 6 篇）",
+    "snippet": "本篇讲 movie 和 autobot 的关系。"
+   },
+   {
+    "title": "movie 与 fallen 的故事（第 7 篇）",
+    "snippet": "本篇讲 movie 和 fallen 的关系。"
+   },
+   {
+    "title": "movie 与 decepticon 的故事（第 8 篇）",
+    "snippet": "本篇讲 movie 和 decepticon 的关系。"
+   },
+   {
+    "title": "movie 与 autobot 的故事（第 9 篇）",
+    "snippet": "本篇讲 movie 和 autobot 的关系。"
+   },
+   {
+    "title": "movie 与 fallen 的故事（第 10 篇）",
+    "snippet": "本篇讲 movie 和 fallen 的关系。"
+   }
+  ],
+  "related": [
+   "decepticon"
+  ]
+ },
+ "fallen": {
+  "results": [
+   {
+    "title": "fallen 资料（第 1 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 2 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 3 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 4 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 5 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 6 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 7 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 8 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 9 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   },
+   {
+    "title": "fallen 资料（第 10 篇）",
+    "snippet": "fallen 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ },
+ "decepticon": {
+  "results": [
+   {
+    "title": "decepticon 与 megatron 的故事（第 1 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 2 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 3 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 4 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 5 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 6 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 7 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 与 megatron 的故事（第 8 篇）",
+    "snippet": "本篇讲 decepticon 和 megatron 的关系。"
+   },
+   {
+    "title": "decepticon 资料（第 1 篇）",
+    "snippet": "decepticon 的设定与出场介绍。"
+   },
+   {
+    "title": "decepticon 资料（第 2 篇）",
+    "snippet": "decepticon 的设定与出场介绍。"
+   }
+  ],
+  "related": [
+   "megatron"
+  ]
+ },
+ "autobot": {
+  "results": [
+   {
+    "title": "autobot 与 optimus 的故事（第 1 篇）",
+    "snippet": "本篇讲 autobot 和 optimus 的关系。"
+   },
+   {
+    "title": "autobot 与 optimus 的故事（第 2 篇）",
+    "snippet": "本篇讲 autobot 和 optimus 的关系。"
+   },
+   {
+    "title": "autobot 与 optimus 的故事（第 3 篇）",
+    "snippet": "本篇讲 autobot 和 optimus 的关系。"
+   },
+   {
+    "title": "autobot 资料（第 1 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 2 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 3 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 4 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 5 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 6 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   },
+   {
+    "title": "autobot 资料（第 7 篇）",
+    "snippet": "autobot 的设定与出场介绍。"
+   }
+  ],
+  "related": []
+ }
+}
