@@ -20,15 +20,25 @@ def make_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-class Client:
-    """一个 WS 客户端：JSON 消息排队发送；画面帧只发最新的一帧（发不过来就丢旧帧）。"""
+async def _async(fn, *args):
+    return fn(*args)
 
-    def __init__(self, ws: web.WebSocketResponse, svc):
+
+class Client:
+    """一个 WS 客户端：JSON 消息排队发送；画面帧只发最新的一帧（发不过来就丢旧帧）。
+    mode=thumb（远程平板）：不转发推流帧，最多每秒发一张宽 640 的缩略图；收到的输入一律忽略。"""
+
+    THUMB_INTERVAL_S = 1.0
+
+    def __init__(self, ws: web.WebSocketResponse, svc, mode: str = "full", device_id: str | None = None):
         self.ws = ws
         self.svc = svc
+        self.mode = mode
+        self.device_id = device_id
         self.q: asyncio.Queue = asyncio.Queue(maxsize=500)
         self.frame_ready = asyncio.Event()
         self.sent_seq = 0
+        self._last_thumb = 0.0
 
     def queue_json(self, msg: dict):
         try:
@@ -48,6 +58,17 @@ class Client:
         while not self.ws.closed:
             await self.frame_ready.wait()
             self.frame_ready.clear()
+            if self.mode == "thumb":
+                wait = self.THUMB_INTERVAL_S - (time.monotonic() - self._last_thumb)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                data, seq = self.svc.preview.thumb()
+                if data is None or seq == self.sent_seq:
+                    continue
+                self.sent_seq = seq
+                self._last_thumb = time.monotonic()
+                await self.ws.send_bytes(data)
+                continue
             data = self.svc.preview.latest
             seq = self.svc.preview.seq
             if data is None or seq == self.sent_seq:
@@ -95,7 +116,16 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
         return resp
 
     app = web.Application(middlewares=[guard], client_max_size=50 * 1024 * 1024)
+    register_routes(app, svc, token_for_page=token, page_cookie=(COOKIE, token), source_of=lambda req: "电脑")
+    return app
+
+
+def register_routes(app: web.Application, svc, *, token_for_page: str, page_cookie=None, source_of=None,
+                    remote: bool = False) -> web.Application:
+    """注册全部页面与接口。本机入口与远程入口共用（鉴权由各自的中间件做）。
+    source_of(request) -> 操作来源（"电脑" / 设备名），写进运行中的修改记录。"""
     r = app.router
+    source_of = source_of or (lambda req: "电脑")
 
     def ok(data=None, **kw):
         return web.json_response({"ok": True, **({"data": data} if data is not None else {}), **kw},
@@ -124,9 +154,10 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
     # ---------- 页面 ----------
     def page(name):
         async def h(request):
-            html = (STATIC / name).read_text(encoding="utf-8").replace("{{TOKEN}}", token)
+            html = (STATIC / name).read_text(encoding="utf-8").replace("{{TOKEN}}", token_for_page)
             resp = web.Response(text=html, content_type="text/html", charset="utf-8")
-            resp.set_cookie(COOKIE, token, httponly=True, samesite="Strict", path="/")
+            if page_cookie:
+                resp.set_cookie(page_cookie[0], page_cookie[1], httponly=True, samesite="Strict", path="/")
             return resp
         return h
 
@@ -229,7 +260,7 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
         return ok(job.to_dict())
 
     async def jobs_stop(request):
-        return ok(svc.jobs.stop())
+        return ok(svc.jobs.stop(source_of(request)))
 
     async def jobs_continue(request):
         return ok(svc.jobs.continue_human())
@@ -237,34 +268,35 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
     r.add_post("/api/jobs/stop", jobs_stop)
     r.add_post("/api/jobs/continue", jobs_continue)
 
-    # ---------- 暂停 / 恢复 / 需确认（桌面驱动 spec F8、F9；下一章手机复用） ----------
+    # ---------- 暂停 / 恢复 / 需确认（桌面驱动 spec F8、F9；平板复用） ----------
     async def jobs_pause(request):
-        return ok(svc.jobs.pause())
+        return ok(svc.jobs.pause(source_of(request)))
 
     async def jobs_resume(request):
-        return ok(svc.jobs.resume())
+        return ok(svc.jobs.resume(source_of(request)))
 
     async def jobs_confirm(request):
         d = await body(request)
-        return ok(svc.jobs.confirm(bool(d.get("allow"))))
+        return ok(svc.jobs.confirm(bool(d.get("allow")), source_of(request)))
     r.add_post("/api/jobs/pause", jobs_pause)
     r.add_post("/api/jobs/resume", jobs_resume)
     r.add_post("/api/jobs/confirm", jobs_confirm)
 
-    # ---------- 关联展开（spec F15、F16） ----------
-    async def ex_types(request):
-        return ok(svc.jobs.expand_types())
-
-    async def ex_start(request):
-        d = await body(request)
+    # ---------- 任务书（搭建、导入、保存、预览、试跑、运行） ----------
+    async def start_book(request, d: dict):
+        params = {"name": d.get("name") or d.get("type"), "text": d.get("text"),
+                  "values": d.get("values") or d.get("params") or {}, "budget": d.get("budget"),
+                  "trial": bool(d.get("trial")), "_source": source_of(request)}
         try:
-            job = await svc.jobs.start("expand", {"type": d.get("type"), "params": d.get("params") or {},
-                                                  "budget": d.get("budget")})
+            job = await svc.jobs.start("book", params)
         except JobBusy as e:
             return err(409, f"正在运行：{e.title}", running=e.title)
         except (RuntimeError, ValueError, FileNotFoundError, KeyError) as e:
-            return err(400, f"{type(e).__name__}: {e}")
+            return err(400, str(e))
         return ok(job.to_dict())
+
+    async def ex_start(request):              # 上一章的入口：同 /api/books/run
+        return await start_book(request, await body(request))
 
     async def ex_tree(request):
         return ok(svc.jobs.expand_snapshot)
@@ -274,13 +306,132 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
 
         async def go():
             return svc.jobs.expand_edit(str(d.get("op", "")), d.get("node"), d.get("key"), d.get("values"),
-                                        d.get("n"))
-        return await guarded(go())
-    r.add_get("/api/expand/types", ex_types)
+                                        d.get("n"), rev=d.get("rev"), source=source_of(request))
+        try:
+            return ok(await go())
+        except PermissionError as e:
+            return err(409, str(e), conflict="另一端" in str(e))
+        except (RuntimeError, ValueError, KeyError) as e:
+            return err(400, str(e))
     r.add_post("/api/expand/start", ex_start)
     r.add_get("/api/expand/tree", ex_tree)
     r.add_post("/api/expand/edit", ex_edit)
     r.add_get("/tree", page("tree.html"))
+    r.add_get("/build", page("build.html"))
+    r.add_get("/m", page("m.html"))
+
+    # ---------- 远程访问管理（只在本机入口；远程入口的白名单里没有这些） ----------
+    if not remote:
+        def access():
+            a = getattr(svc, "remote", None)
+            if a is None:
+                raise RuntimeError("远程访问不可用")
+            return a
+
+        async def rm_state(request):
+            return await guarded(_async(lambda: access().state()))
+
+        async def rm_mode(request):
+            d = await body(request)
+            try:
+                return ok(await access().set_mode(str(d.get("mode") or "")))
+            except (RuntimeError, ValueError) as e:
+                return err(400, str(e), state=access().state())
+
+        async def rm_code(request):
+            d = await body(request)
+            return await guarded(_async(access().refresh_code, str(d.get("kind") or "lan")))
+
+        async def rm_qr(request):
+            try:
+                svg = access().qr_svg(str(request.query.get("kind", "lan")))
+            except (RuntimeError, ValueError) as e:
+                return err(400, str(e))
+            return web.Response(text=svg, content_type="image/svg+xml", charset="utf-8")
+
+        async def rm_rename(request):
+            d = await body(request)
+            return await guarded(_async(access().rename, str(d.get("id") or ""), str(d.get("name") or "")))
+
+        async def rm_revoke(request):
+            d = await body(request)
+            return ok(await access().revoke(str(d.get("id") or "")))
+        r.add_get("/api/remote", rm_state)
+        r.add_post("/api/remote/mode", rm_mode)
+        r.add_post("/api/remote/code", rm_code)
+        r.add_get("/api/remote/qr.svg", rm_qr)
+        r.add_post("/api/remote/devices/rename", rm_rename)
+        r.add_post("/api/remote/devices/revoke", rm_revoke)
+
+    def books_svc():
+        return svc.jobs.books
+
+    async def bk_list(request):
+        return await guarded(_async(books_svc().list))
+
+    async def bk_blocks(request):
+        from hands.taskbook.blocks import BUILTIN_LISTS, FORMAT, TEMPLATE_VARS, registry_json
+        return ok({"blocks": registry_json(), "builtin_lists": list(BUILTIN_LISTS), "format": FORMAT,
+                   "template_vars": list(TEMPLATE_VARS)})
+
+    async def bk_guide(request):
+        return await guarded(_async(books_svc().guide))
+
+    async def bk_steps(request):
+        run = str(request.query.get("run", ""))
+        root = Path(svc.config.runs_dir).resolve()
+        p = (root / run).resolve() if run and "/" not in run and "\\" not in run else None
+        if p is None or p.parent != root or not p.is_dir():
+            return err(404, "没有这次运行")
+        from .books import BookService
+        return ok(BookService.steps(p))
+
+    async def bk_get(request):
+        return await guarded(_async(books_svc().get, request.match_info["name"]))
+
+    async def bk_validate(request):
+        d = await body(request)
+        return await guarded(_async(books_svc().validate, str(d.get("text") or "")))
+
+    async def bk_import(request):
+        if request.content_type.startswith("multipart/"):
+            text = ""
+            async for part in (await request.multipart()):
+                if part.name in ("file", "text"):
+                    raw = await part.read(decode=False)
+                    text = raw.decode("utf-8-sig", errors="replace")
+        else:
+            text = str((await body(request)).get("text") or "")
+        return await guarded(_async(books_svc().import_, text))
+
+    async def bk_save(request):
+        d = await body(request)
+        from hands.taskbook.book import BookConflict
+        try:
+            res = books_svc().save(str(d.get("name") or ""), str(d.get("text") or ""), d.get("rev"),
+                                   bool(d.get("save_as")))
+        except BookConflict as e:
+            return err(409, str(e), conflict=True)
+        except (ValueError, FileNotFoundError) as e:
+            return err(400, str(e))
+        return ok(res)
+
+    async def bk_preview(request):
+        d = await body(request)
+        return await guarded(_async(books_svc().preview, str(d.get("text") or "")))
+
+    async def bk_run(request):
+        return await start_book(request, await body(request))
+    r.add_get("/api/books", bk_list)
+    r.add_get("/api/books/blocks", bk_blocks)
+    r.add_get("/api/books/guide", bk_guide)
+    r.add_get("/api/books/steps", bk_steps)
+    r.add_post("/api/books/validate", bk_validate)
+    r.add_post("/api/books/import", bk_import)
+    r.add_post("/api/books/save", bk_save)
+    r.add_post("/api/books/preview", bk_preview)
+    r.add_post("/api/books/run", bk_run)
+    r.add_get("/api/books/{name}", bk_get)
 
     async def cases(request):
         return ok(svc.cases())
@@ -428,8 +579,12 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
     async def ws_handler(request):
         ws = web.WebSocketResponse(heartbeat=20, max_msg_size=4 * 1024 * 1024)
         await ws.prepare(request)
-        c = Client(ws, svc)
+        from .remote import device_of
+        dev = device_of(request) if remote else None
+        c = Client(ws, svc, mode="thumb" if remote else "full", device_id=dev.id if dev else None)
         svc.clients.add(c)
+        if remote and not svc.preview.want_on and svc.browser_alive():
+            await svc.preview.set_on(True)          # 平板要看缩略画面：推流没开就打开
         svc.preview._listeners.append(c.on_frame)
         c.queue_json(svc.state())
         tasks = [asyncio.create_task(c.json_loop()), asyncio.create_task(c.frame_loop())]
@@ -444,6 +599,8 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
                 except ValueError:
                     continue
                 t = m.get("t")
+                if remote:                           # 平板不提供远程点击输入：只读
+                    continue
                 if t == "shown":
                     svc.preview.report_shown(int(m.get("seq", 0)), float(m.get("at", time.time())))
                 elif t in ("mouse", "key", "text"):
@@ -480,15 +637,20 @@ def create_app(svc, token: str, port_ref: dict) -> web.Application:
         task = asyncio.create_task(loop())
         yield
         task.cancel()
-    app.cleanup_ctx.append(pusher)
+    if not remote:                       # 状态推送只需一份（本机入口一直在），远程连接也在 svc.clients 里
+        app.cleanup_ctx.append(pusher)
     return app
 
 
 async def serve(svc, port: int = 0, host: str = "127.0.0.1", token: str | None = None):
     """启动服务，返回 (runner, port, token)。"""
+    from hands.config import DATA_ROOT, remote_settings
     from .inputs import InputForwarder
+    from .remote import RemoteAccess
     token = token or make_token()
     svc.input = InputForwarder()
+    if getattr(svc, "remote", None) is None:
+        svc.remote = RemoteAccess(svc, remote_settings(svc.config), DATA_ROOT, log=svc.log)
     port_ref = {"port": port}
     app = create_app(svc, token, port_ref)
     runner = web.AppRunner(app, access_log=None)

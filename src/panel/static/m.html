@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="panel-token" content="{{TOKEN}}">
+<meta name="theme-color" content="#2f6fd6">
+<title>Hands 平板</title>
+<link rel="stylesheet" href="/static/m.css">
+</head>
+<body>
+<header id="top">
+  <b>Hands</b>
+  <span id="who" class="muted"></span>
+  <span class="spacer"></span>
+  <span id="conn" class="conn off">连接中…</span>
+</header>
+<div id="alert" class="alert hidden">
+  <div id="alertText"></div>
+  <div class="row" id="alertBtns"></div>
+</div>
+
+<main>
+  <section id="tab-status" class="tab on">
+    <div class="card">
+      <div class="row"><b id="jobTitle">没有任务在运行</b><span id="jobState" class="tag"></span></div>
+      <div id="jobLine" class="muted"></div>
+      <div id="pauseLine" class="warn"></div>
+      <div class="row big">
+        <button id="bPause">暂停</button>
+        <button id="bResume">恢复</button>
+        <button id="bStop" class="danger">取消任务</button>
+      </div>
+    </div>
+    <div id="confirmCard" class="card warnbox hidden">
+      <b>需要你确认：</b><span id="confirmText"></span>
+      <div class="row big"><button id="bAllow" class="primary">允许一次</button><button id="bDeny" class="danger">拒绝</button></div>
+    </div>
+    <div class="card">
+      <div class="row"><b>画面</b><span id="shotInfo" class="muted small"></span></div>
+      <img id="shot" alt="缩略画面" class="shot">
+      <p id="noShot" class="muted small">还没有画面（浏览器没在运行，或电脑上没打开推流）。平板只能看，不能在画面上点。</p>
+    </div>
+  </section>
+
+  <section id="tab-tree" class="tab"><iframe id="treeFrame" title="任务树" data-src="/tree"></iframe></section>
+
+  <section id="tab-books" class="tab">
+    <div id="bookList" class="card">
+      <div class="row"><b>任务书</b><span class="spacer"></span><button id="bNewBook">新建</button><button id="bReloadBooks">刷新</button></div>
+      <select id="bookSel"></select>
+      <div id="bookParams" class="params"></div>
+      <div class="row"><label>次数上限 <input id="bookBudget" type="number" min="1" placeholder="默认"></label></div>
+      <div class="row big">
+        <button id="bRun" class="primary">运行</button>
+        <button id="bTrial">试跑</button>
+        <button id="bEdit">编辑</button>
+      </div>
+      <div id="bookMsg" class="muted small"></div>
+    </div>
+    <div id="buildWrap" class="hidden">
+      <div class="row"><button id="bBackBooks">← 回到任务书列表</button></div>
+      <iframe id="buildFrame" title="搭建任务书"></iframe>
+    </div>
+  </section>
+
+  <section id="tab-runs" class="tab">
+    <div id="runList" class="card"><div class="row"><b>最近运行</b><span class="spacer"></span><button id="bReloadRuns">刷新</button></div>
+      <div id="runs" class="muted">加载中…</div></div>
+    <div id="reportWrap" class="hidden">
+      <div class="row"><button id="bBackRuns">← 回到列表</button></div>
+      <iframe id="reportFrame" title="报告"></iframe>
+    </div>
+  </section>
+</main>
+
+<nav id="nav">
+  <button data-tab="status" class="on">状态</button>
+  <button data-tab="tree">任务树</button>
+  <button data-tab="books">任务书</button>
+  <button data-tab="runs">记录</button>
+</nav>
+<script src="/static/m.js"></script>
+</body>
+</html>

@@ -71,3 +71,8 @@ ul.list li { cursor: copy; }
 #settingsForm .pending { outline: 2px solid var(--warn); }
 #report { width: 100%; height: 420px; border: 1px solid var(--line); margin-top: 6px; background: #fff; }
 h4 { margin: 8px 0 4px; }
+
+/* 远程访问卡片 */
+.rm-codes { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0; }
+.rm-code { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: #fff; }
+.rm-code img { display: block; margin: 4px 0; image-rendering: pixelated; }

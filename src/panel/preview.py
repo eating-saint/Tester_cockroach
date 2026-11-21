@@ -167,6 +167,28 @@ class Screencaster:
             except Exception:
                 pass
 
+    def thumb(self, width: int = 640, quality: int = 70) -> tuple[bytes | None, int]:
+        """远程平板用的缩略图：最新一帧缩到宽 width 的 JPEG（同样的帧头格式），按帧号缓存。"""
+        if self.latest is None:
+            return None, self.seq
+        cache = getattr(self, "_thumb_cache", None)
+        if cache and cache[0] == self.seq:
+            return cache[1], self.seq
+        import io
+        from PIL import Image
+        n = struct.unpack(">I", self.latest[:4])[0]
+        head = json.loads(self.latest[4:4 + n].decode("utf-8"))
+        im = Image.open(io.BytesIO(self.latest[4 + n:])).convert("RGB")
+        if im.width > width:
+            im = im.resize((width, max(1, round(im.height * width / im.width))))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=quality)
+        head = {**head, "thumb": True, "tw": im.width, "th": im.height}
+        hb = json.dumps(head).encode("utf-8")
+        data = struct.pack(">I", len(hb)) + hb + out.getvalue()
+        self._thumb_cache = (self.seq, data)
+        return data, self.seq
+
     def report_shown(self, seq: int, at: float):
         ts = self._frame_ts.get(seq)
         if ts is not None:

@@ -1,6 +1,9 @@
-"""d17（AC17）：仿点评夹具 + 替身模型跑点餐定义，结果排序与标准答案一致；无依据项被排除。
+"""d17（AC5）：仿点评夹具 + 替身 4b（只选编号）跑点餐积木任务书，结果与标准答案一致。
 
-python tests/acceptance/d17_dinner.py [--driver cdp|desktop]
+- 每类前 2（价位升序、评分降序）与标准答案一致；"价位 ≤ $$"比较过滤正确（$$$ 的店不进树）；
+  价位未知的店单独列出、排在已知之后。
+
+python tests/acceptance/d17_dinner.py [--driver cdp|playwright|desktop]
 """
 from __future__ import annotations
 
@@ -15,30 +18,11 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import dcommon as dc  # noqa: E402
-from hands.expand.run import ExpandRunner  # noqa: E402
-from hands.expand.spec import load_task_type  # noqa: E402
 from hands.recorder import RunRecorder  # noqa: E402
+from hands.taskbook import book as B  # noqa: E402
+from hands.taskbook.runner import TaskbookRunner  # noqa: E402
 
 DATA = json.loads((ROOT / "fixtures" / "f23_dinner" / "data.json").read_text(encoding="utf-8"))
-
-
-def script() -> dc.ExpandScript:
-    cands, judge, fields = {}, {}, {}
-    for c, rows in DATA["cuisines"].items():
-        names = [r["name"] for r in rows]
-        cands[c] = names
-        ops = [{"op": "new_key", "from": 1, "condition": "c1", "reason": "便宜"}]
-        ops += [{"op": "add_value", "key": c, "from": i, "condition": "c1", "reason": "便宜"}
-                for i in range(2, len(names) + 1)]
-        judge[c] = ops
-        for r in rows:
-            fields[r["name"]] = [("店名", r["name"]), ("评分", f"评分：{r['rating']}")]
-            if r["price"]:
-                fields[r["name"]].append(("价位", f"价位：{r['price']}"))
-    # 故意编一家页面上不存在的店：判定引用它会被拒（无依据）
-    cands["日本寿司"] = cands["日本寿司"] + ["编出来的寿司店"]
-    judge["日本寿司"].append({"op": "add_value", "key": "日本寿司", "from": len(cands["日本寿司"]), "reason": "编的"})
-    return dc.ExpandScript(cands, judge, fields)
 
 
 async def main(driver: str) -> int:
@@ -47,31 +31,38 @@ async def main(driver: str) -> int:
         dc.no_touch()
     b, cfg = await dc.browser_for(driver)
     checks = []
+    rec = None
     try:
-        tt = load_task_type(ROOT / "tasks" / "fixture_dinner.yaml", {"BASE": dc.BASE, "n": 2})
+        book = B.bind(B.load(ROOT / "tasks" / "fixture_dinner.yaml"), {"BASE": dc.BASE})
         rec = RunRecorder(cfg.runs_dir, f"d17-{driver}")
-        r = ExpandRunner(b, cfg, rec, tt, client=dc.expand_client(script()), log=lambda *a: None)
+        r = TaskbookRunner(b, cfg, rec, book, client=dc.book_client(), log=lambda *a: None)
         res = await r.run()
-        top = res["rank"]["top"]
+        top = res["ranked"]["top"]
         for c, want in DATA["answer"].items():
             if c == "rule":
                 continue
-            got = [x["name"] for x in top.get(c, [])]
-            checks.append((f"C17.2 {c} 前 2 与标准答案一致", got == want, f"{got} / 期望 {want}"))
-        fake = [n.word for n in r.tree.nodes.values() if n.word == "编出来的寿司店"]
-        rejected = any(x.get("op") == "rejected" and "无依据" in str(x.get("reason"))
-                       for n in r.tree.nodes.values() for x in n.reasons)
-        checks.append(("C14.1 / C17.4 编出来的店被拒、不进树", not fake and rejected, f"树里={fake} 记录拒绝={rejected}"))
-        unknown = [x for g in top.values() for x in g if not x.get("price_known")]
-        checks.append(("C17.3 价位写法统一比较（前 n 里没有价位未知）", not unknown, str(unknown)))
-        checks.append(("任务结束且用量在上限内", res["state"] == "done" and r.tree.used <= tt.budget,
+            got = [x["word"] for x in top.get(c, [])]
+            checks.append((f"C22 {c} 前 2 与标准答案一致", got == want, f"{got} / 期望 {want}"))
+        expensive = [r_["name"] for rs in DATA["cuisines"].values() for r_ in rs if r_["price"] == "$$$"]
+        tree_words = {n.word for n in r.tree.nodes.values() if n.state != "deleted"}
+        checks.append(("C22 价位 ≤ $$ 比较过滤正确（$$$ 不进树）", not (set(expensive) & tree_words), str(expensive)))
+        unknown_want = {r_["name"] for rs in DATA["cuisines"].values() for r_ in rs if not r_["price"]}
+        unknown_got = {x["word"] for x in res["ranked"]["unknown"]}
+        checks.append(("C22 价位未知的单独列出", unknown_got == unknown_want, f"{sorted(unknown_got)}"))
+        bad_order = [g for g, rows in top.items()
+                     if any(not a["known"] and b_["known"] for a, b_ in zip(rows, rows[1:]))]
+        checks.append(("C22 价位未知的排在已知之后", not bad_order, str(bad_order)))
+        grounded = all(x["evidence"] and x["evidence"].get("url") for g in top.values() for x in g)
+        checks.append(("每个结果有依据（来源步骤与网址）", grounded, ""))
+        checks.append(("任务结束且用量在上限内", res["state"] == "done" and r.tree.used <= book.limits["budget"],
                        str(r.tree.counts())))
     finally:
         await dc.close_agent_window(b)
         srv.stop()
     for name, ok, detail in checks:
         print(f"{'通过' if ok else '失败'}  {name}  {detail}")
-    print(f"运行目录：{rec.root}")
+    if rec is not None:
+        print(f"运行目录：{rec.root}")
     return 0 if all(c[1] for c in checks) else 1
 
 

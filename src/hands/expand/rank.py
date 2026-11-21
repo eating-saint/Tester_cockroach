@@ -11,10 +11,38 @@ DEFAULT_BOUNDS = (15.0, 30.0, 60.0)
 DEFAULT_CNY_PER_USD = 7.2
 
 
+_NUM = r"\d+(?:[.,]\d+)?"
+_RANGE = rf"{_NUM}(?:\s*[-–~～至]\s*[$¥￥]?\s*{_NUM})?"
+# 在一段长文字里找价位（按优先顺序）：人均金额、货币符号加金额、"N 元"、独立的 $～$$$$ / ¥～¥¥¥¥
+_PRICE_IN_TEXT = [
+    re.compile(rf"人均\s*[:：]?\s*[$¥￥]?\s*{_RANGE}\s*元?"),
+    re.compile(rf"[$¥￥]\s*{_RANGE}"),
+    re.compile(rf"{_RANGE}\s*元"),
+    re.compile(r"(?<![\w$¥￥])([$¥￥])\1{0,3}(?![\w$¥￥])"),
+]
+
+
+def find_price_text(s: str | None) -> str | None:
+    """从一段文字里找出第一处价位写法（"Italian · $$ · Open now" → "$$"），找不到返回 None。"""
+    if not s:
+        return None
+    for pat in _PRICE_IN_TEXT:
+        m = pat.search(str(s))
+        if m:
+            return m.group(0).strip()
+    return None
+
+
 def parse_price(s: str | None, bounds=DEFAULT_BOUNDS, cny_per_usd: float = DEFAULT_CNY_PER_USD) -> int | None:
     if not s:
         return None
     t = str(s).strip()
+    if re.search(r"[A-Za-z一-鿿]", t.replace("人均", "").replace("价位", "").replace("元", "")):
+        found = find_price_text(t)          # 长文字：先找出价位写法再解析
+        if found is None:
+            return None
+        t = found
+    t = t.replace(",", "")
     m = re.fullmatch(r"\s*(?:价位[:：]?\s*)?([$￥¥])\1{0,3}\s*", t)
     if m and not re.search(r"\d", t):
         return min(len(t.replace("价位", "").replace(":", "").replace("：", "").strip()), 4)

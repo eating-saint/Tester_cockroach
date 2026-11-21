@@ -1,0 +1,33 @@
+# 任务书：挑机械键盘（Amazon 真实站点）
+# 11-16 探访：DoorDash、Newegg 停在 Cloudflare 验证页，Walmart 要按住按钮验证，京东跳登录，eBay 报错页，Yelp 空白；
+# 按边界不做规避，所以选能直接打开搜索结果的 Amazon。
+# 组键本身也会作为一个节点被搜一次，所以键用英文搜索词 mechanical keyboard（它搜到的商品挂在它下面）。
+# 4 个节点各用 4 次共 16 次；上限给 20 留余量：用满后"结束"会丢掉子类刚找到的值（交接 F8），要让运行自然结束。
+# 11-16 夜：桌面驱动直接打开 /s?k= 搜索网址落到 Amazon 的 SORRY 狗图错误页 → 改为从首页搜索框输入（search 的 home）。
+# 字段名不带"价 / price"：带这些字的字段会按餐厅价位档位（$/$$/…）比较和排序，商品金额要按数字比。
+format: taskbook/1
+name: keyboard_amazon
+title: 挑机械键盘（Amazon）
+note: 每种键盘：在 Amazon 搜索 → 滚动看完 → 抽结果里的商品标题 → 去掉 Sponsored 广告位 → 依次打开前 3 个读金额、星级、评价数（名字用页面标题）→ 星级在 4.5 到 5 之间且金额不超过 100 美元的作为这一类的值（直接是末端叶子）→ 每类按星级降序、金额升序取前 3 个。
+params: []
+groups:
+  - mechanical keyboard: [75% wireless mechanical keyboard, hot swappable mechanical keyboard, low profile mechanical keyboard]
+start: mechanical keyboard
+limits: {budget: 20, keep_tabs: 10, trial_budget: 5}
+flow:
+  - search: {home: "https://www.amazon.com/", query: "{word}"}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 搜索结果里每个商品的标题链接, max: 8, screens: 4, as: 候选}
+  - filter: {in: 候选, stop: [Sponsored], as: 商品}
+  - open:
+      from: 商品
+      n: 1
+      count: 3
+      back: true
+      flow:
+        - read_fields: {names: [金额, 星级, 评价数], as: 详情}
+  - compare: {in: 详情, field: 星级, op: ">=", value: "4.5", as: 高分, unknown_as: 星级未知}
+  - compare: {in: 高分, field: 星级, op: "<=", value: "5", as: 星级合理}
+  - compare: {in: 星级合理, field: 金额, op: "<=", value: "100", as: 入选, unknown_as: 金额未知}
+  - tree: {use: 入选, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["星级:desc", "金额:asc"], n: 3, group_by: key, unknown: last}

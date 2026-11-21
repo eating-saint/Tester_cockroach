@@ -22,7 +22,7 @@ from hands.status import STATUS
 REJECT_TEXT = {"miss": "没点中高亮目标", "left_area": "鼠标移出了窗口", "too_slow": "超过 5 秒", "too_few": "轨迹点太少",
                "duplicate": "重复样本", "page_changed": "页面变了"}
 KIND_NAMES = {"demo": "演示", "case": "用例", "target": "指定目标", "manual": "手动", "sample_real": "真实网站采集",
-              "compare_capture": "人眼比对采集", "compare_model": "人眼比对：模型作答", "expand": "关联展开"}
+              "compare_capture": "人眼比对采集", "compare_model": "人眼比对：模型作答", "book": "任务书"}
 OS_INPUT_BLOCKED = ("demo", "sample_real", "target", "manual")     # 桌面驱动下不提供（用户直接操作真实窗口即可）
 DEMO_IDS = {"中心": "b-c", "东": "b-e", "东南": "b-se", "南": "b-s", "西南": "b-sw", "西": "b-w",
             "西北": "b-nw", "北": "b-n", "东北": "b-ne", "小按钮": "b-tiny"}
@@ -77,8 +77,9 @@ class JobManager:
         from hands.pause import PauseGate
         self._gate_local = PauseGate(watch_human=False)   # CDP / Playwright：只响应面板按钮
         self._confirm_fut: asyncio.Future | None = None
-        self.expand = None                       # 当前（或最近一次）关联展开运行器
+        self.expand = None                       # 当前（或最近一次）任务书运行器（TaskbookRunner）
         self.expand_snapshot: dict | None = None
+        self.book_client = None                  # 验收用：替身 4b（设了就不连本机 Ollama）
 
     # ---------------- 暂停 / 确认（spec F8、F9、F18） ----------------
     @property
@@ -90,14 +91,25 @@ class JobManager:
         from hands.driver import caps_of
         return float(desktop_settings(self.svc.config)["resume_grace_s"]) if caps_of(self.svc.browser).os_input else 0
 
-    def pause(self) -> bool:
+    def _log_control(self, op: str, source: str, **detail):
+        """任务书运行中的控制操作记进 edits.jsonl（来源：电脑 / 设备名）。"""
+        r = self.expand
+        if r is not None and self.current is not None and self.current.kind == "book":
+            try:
+                r.log_control(op, source, **detail)
+            except Exception:
+                pass
+
+    def pause(self, source: str = "电脑") -> bool:
         if not self.busy:
             return False
         ok = self.gate.pause("user")
+        if ok:
+            self._log_control("pause", source)
         self.svc.push_soon()
         return ok
 
-    def resume(self) -> bool:
+    def resume(self, source: str = "电脑") -> bool:
         g = self.gate
         if g.paused is None or g.paused.reason == "handoff":
             return False
@@ -105,6 +117,7 @@ class JobManager:
             return False                         # 次数用满：用"再给 N 次"或"结束并输出"
         g.resume("button")
         g.arm(self._grace())
+        self._log_control("resume", source)
         self.svc.push_soon()
         return True
 
@@ -130,10 +143,11 @@ class JobManager:
             self.gate.arm(self._grace())
             self.svc.push_soon()
 
-    def confirm(self, allow: bool) -> bool:
+    def confirm(self, allow: bool, source: str = "电脑") -> bool:
         f = self._confirm_fut
         if f is None or f.done():
             return False
+        self._log_control("confirm", source, allow=bool(allow))
         f.set_result(bool(allow))
         return True
 
@@ -154,13 +168,15 @@ class JobManager:
     async def start(self, kind: str, params: dict) -> JobInfo:
         if self.busy:
             raise JobBusy(self.current.title)
+        if kind == "expand":                       # 上一章的名字：同任务书
+            kind = "book"
         if kind not in KIND_NAMES:
             raise ValueError(f"unknown job kind: {kind}")
         from hands.driver import caps_of
         if kind in OS_INPUT_BLOCKED and caps_of(self.svc.browser).os_input:
             raise ValueError(f"桌面驱动下不提供「{KIND_NAMES[kind]}」：请直接操作代理窗口，或切换到 CDP 驱动")
-        if kind == "expand" and self.svc.config.decision != "vlm":
-            raise ValueError("关联展开任务只能用大模型决策：请先在设置页把决策方式切到视觉大模型")
+        if kind == "book":
+            params = {**params, "_book": await self.prepare_book(params)}
         if kind == "sample_real":
             if getattr(self.svc.browser, "driver", self.svc.config.driver) != "cdp":
                 raise ValueError("Playwright 驱动不支持真实网站采集（请切换到 CDP 驱动）")
@@ -177,16 +193,17 @@ class JobManager:
         self.current = job
         self._stop = False
         self._continue = asyncio.Event()
-        if kind in ("case", "demo", "expand"):
+        if kind in ("case", "demo", "book"):
             self.tree = None
             self.steps = []
-        if kind == "expand":
-            job.title += " " + Path(params.get("type", "")).stem
+        if kind == "book":
+            b = params["_book"]
+            job.title += f" {b.title or b.name}" + ("（试跑）" if params.get("trial") else "")
         if self.gate.paused is not None:            # 上一个任务遗留的暂停（例如次数用满后停止）
             self.gate.resume("new_job")
         from . import compare as cmp
         runner = {"demo": self._demo, "case": self._case, "target": self._target, "manual": self._manual,
-                  "sample_real": self._sample_real, "expand": self._expand,
+                  "sample_real": self._sample_real, "book": self._book,
                   "compare_capture": lambda j, p: cmp.job_capture(self, j, p),
                   "compare_model": lambda j, p: cmp.job_model(self, j, p)}[kind]
         self._task = asyncio.create_task(self._wrap(job, runner, params))
@@ -211,9 +228,10 @@ class JobManager:
             self.svc.event("job_end", {"job": job.to_dict()})
             self.svc.push_soon()
 
-    def stop(self) -> bool:
+    def stop(self, source: str = "电脑") -> bool:
         if not self.busy:
             return False
+        self._log_control("stop", source)
         self._stop = True
         self.current.state = "stopping"
         self._continue.set()          # 等人工 / 手动模式的任务也能结束
@@ -350,38 +368,55 @@ class JobManager:
         if res.reason == "user_stopped":
             job.state = "stopped"
 
-    # ---------------- 关联展开（spec F15、F16） ----------------
-    def expand_types(self) -> list[dict]:
-        from hands.expand.spec import load_task_type
-        out = []
-        d = DATA_ROOT / "tasks"
-        for p in sorted(d.glob("*.yaml")) if d.exists() else []:
-            try:
-                t = load_task_type(p, self.svc.fixture_vars())
-                out.append({"file": p.name, "name": t.name, "title": t.title, "budget": t.budget,
-                            "params": [x for x in t.params if x.get("name") not in ("BASE",)],
-                            "start": t.start, "groups": [[k, v] for k, v in t.groups],
-                            "query": t.query, "search_url": t.search_url,
-                            "conditions": [{"id": c.id, "text": c.text} for c in t.conditions]})
-            except Exception as e:
-                out.append({"file": p.name, "name": p.stem, "title": p.stem, "error": str(e), "params": []})
-        return out
+    # ---------------- 任务书（使用者自制的关联展开任务） ----------------
+    @property
+    def books(self):
+        from .books import BookService
+        return BookService(DATA_ROOT / "tasks")
 
-    async def _expand(self, job: JobInfo, params: dict):
-        from hands.expand.run import ExpandRunner
-        from hands.expand.spec import load_task_type
-        d = DATA_ROOT / "tasks"
-        path = (d / str(params.get("type", ""))).resolve()
-        if d.resolve() not in path.parents or not path.exists():
-            raise FileNotFoundError(params.get("type"))
-        values = {k: v for k, v in (params.get("params") or {}).items() if v not in (None, "")}
-        if "${BASE}" in path.read_text(encoding="utf-8"):
+    async def prepare_book(self, params: dict):
+        """发起前：读任务书（按名称或草稿文本）、校验、填参数、检查本机 Ollama。不合格直接拒绝启动。"""
+        from hands.taskbook.book import BookError, bind
+        from hands.taskbook.convert import detect
+        from hands.taskbook.runner import uses_4b
+        from hands.taskbook.validate import check_text
+        text, name = params.get("text"), params.get("name") or params.get("type")
+        if not text:
+            if not name:
+                raise ValueError("请选择任务书")
+            name = Path(str(name)).stem
+            text = self.books.get(name)["text"]
+        if detect(text) == "legacy":
+            raise ValueError("这是上一章的旧格式：请先在搭建工具里导入，用积木补全节点流程（需要用积木改写）")
+        b, probs = check_text(text, name)
+        if b is not None and b.status == "needs_rewrite":
+            raise ValueError("这份任务书由旧格式转换而来，需要用积木改写节点流程后才能运行")
+        if b is None or probs:
+            raise ValueError("任务书有问题，不能运行：" + "；".join(str(p) for p in probs))
+        values = {k: v for k, v in (params.get("values") or params.get("params") or {}).items()
+                  if v not in (None, "")}
+        if any(p.get("name") == "BASE" for p in b.params) and "BASE" not in values:
             self.svc.ensure_fixtures()
-            values.setdefault("BASE", self.svc.fixture_vars()["BASE"])
-        tt = load_task_type(path, values)
-        if params.get("budget"):
-            tt.budget = int(params["budget"])
-        rec = self._recorder(f"expand-{tt.name}")
+            values["BASE"] = self.svc.fixture_vars()["BASE"]
+        try:
+            b = bind(b, values)
+        except BookError as e:
+            raise ValueError(str(e)) from None
+        if uses_4b(b.flow) and self.book_client is None:
+            from hands.config import vlm_settings
+            from hands.vlm.client import ModelUnavailable, OllamaClient
+            try:
+                await OllamaClient(vlm_settings(self.svc.config)).check()
+            except ModelUnavailable as e:
+                raise RuntimeError(f"本机 Ollama 不可用：{e}") from None
+        return b
+
+    async def _book(self, job: JobInfo, params: dict):
+        from hands.taskbook.runner import TaskbookRunner
+        book = params["_book"]
+        trial = bool(params.get("trial"))
+        budget = int(params["budget"]) if params.get("budget") not in (None, "", 0) else None
+        rec = self._recorder(f"book-{book.name}" + ("-trial" if trial else ""))
         run_seed = self._seed()
 
         def factory(name, attempt):
@@ -391,56 +426,36 @@ class JobManager:
             self.expand_snapshot = _jsonable(snap)
             c = snap.get("counts", {})
             job.progress = {"used": c.get("used"), "budget": c.get("budget"), "leaves": c.get("leaves"),
-                            "nodes": c.get("nodes"), "state": snap.get("state")}
-            self.svc.event("expand_changed", {"counts": c, "state": snap.get("state")})
+                            "nodes": c.get("nodes"), "state": snap.get("state"), "run": rec.root.name,
+                            "wait_reason": snap.get("wait_reason"), "trial": trial}
+            self.svc.event("expand_changed", {"counts": c, "state": snap.get("state"), "run": rec.root.name})
+            if snap.get("state") == "waiting":
+                self.svc.event("need_decision", {"why": snap.get("wait_reason"), "counts": c})
             self.svc.push_soon()
 
-        runner = ExpandRunner(self.svc.browser, self.svc.config, rec, tt, gate=self.gate,
-                              confirm_fn=self._confirm_fn, on_change=on_change, log=self.svc.log,
-                              handoff_fn=self._handoff, should_stop=lambda: self._stop,
-                              before_action=self.before_action, humanizer_factory=factory)
+        runner = TaskbookRunner(self.svc.browser, self.svc.config, rec, book, gate=self.gate,
+                                confirm_fn=self._confirm_fn, on_change=on_change, log=self.svc.log,
+                                handoff_fn=self._handoff, should_stop=lambda: self._stop,
+                                before_action=self.before_action, humanizer_factory=factory,
+                                trial=trial, budget=budget, client=self.book_client)
         self.expand = runner
+        self._log_control("start", params.get("_source") or "电脑", name=book.name, values=book.values, trial=trial)
         res = await runner.run()
         self.expand_snapshot = _jsonable({**runner.snapshot(), "result": res})
         job.result = {"passed": res["state"] == "done", "reason": f"末端叶子 {len(res['leaves'])} 个",
-                      "dir": f"{rec.root.name}/expand", "rank": res.get("rank")}
+                      "dir": f"{rec.root.name}/book", "run": rec.root.name, "trial": trial,
+                      "ranked": res.get("ranked")}
         if self._stop:
             job.state = "stopped"
 
     def expand_edit(self, op: str, node: str | None = None, key: str | None = None,
-                    values: list | None = None, n: int | None = None) -> dict:
+                    values: list | None = None, n: int | None = None, rev: int | None = None,
+                    source: str = "电脑") -> dict:
         r = self.expand
-        if r is None or self.current is None or self.current.kind != "expand":
-            raise PermissionError("没有正在运行的关联展开任务")
-        g = self.gate
-        if g.paused is None and r.state != "waiting":
-            raise PermissionError("请先暂停，再修改任务树")
-        t = r.tree
-        if node is not None and node not in t.nodes:
-            raise ValueError(f"没有节点 {node}")
-        if op == "delete":
-            t.delete(node)
-        elif op == "set_terminal":
-            t.set_terminal(node)
-        elif op == "set_pending":
-            t.set_pending(node)
-        elif op == "add_group":
-            vs = [str(v).strip() for v in (values or []) if str(v).strip()]
-            if not key or not vs:
-                raise ValueError("加一组需要键和至少一个值")
-            t.add_group(str(key), vs)
-        elif op == "grant":
-            t.grant(int(n or 0))
-            if r.state == "waiting" and not t.exhausted:
-                g.resume("button")
-                g.arm(self._grace())
-        elif op == "finish":
-            t.finish("user")
-            if g.paused is not None:
-                g.resume("button")
-        else:
-            raise ValueError(f"未知操作：{op}")
-        r._save(f"edit:{op}")
+        if r is None or self.current is None or self.current.kind != "book":
+            raise PermissionError("没有正在运行的任务书")
+        r.edit(op, node, key, values, n, rev=rev, source=source, grace=self._grace())
+        self.svc.push_soon()
         return self.expand_snapshot or {}
 
     async def _handoff(self, browser, url, save_dir, input_fn=None, log=print):

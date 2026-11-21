@@ -1,4 +1,4 @@
-"""桌面驱动与关联展开验收公共设施：夹具服务、按驱动建浏览器、替身模型路由。"""
+"""桌面驱动与任务书验收公共设施：夹具服务、按驱动建浏览器、替身模型（任务书替身 4b 只回编号）。"""
 from __future__ import annotations
 
 import asyncio
@@ -71,37 +71,74 @@ def element_no(user: str, pattern: str) -> int | None:
     return None
 
 
-class ExpandScript:
-    """关联展开替身模型：子用例里先 extract 候选、再 complete；判定按 judge[词] 给出（默认 terminal）。"""
+# ---------------- 任务书替身 4b：只回编号（与真实 4b 的输入输出一样） ----------------
+_LINE = re.compile(r"^\s*(\d+) \| [^|]+ \| ([^|]+?)(?: \| (.*))?$")
 
-    def __init__(self, candidates: dict[str, list[str]], judge: dict[str, list[dict]], fields=None):
-        self.candidates = candidates
-        self.judge = judge
-        self.fields = fields or {}               # 词 → [(字段, 值)]
-        self.extracted: set[str] = set()
-        self.judged: list[str] = []
 
-    @staticmethod
-    def _word(user: str) -> str | None:
-        m = re.search(r"当前节点：「([^」]+)」", user)
-        return m.group(1) if m else None
+def element_lines(user: str) -> list[tuple[int, str, str]]:
+    out = []
+    for line in user.splitlines():
+        m = _LINE.match(line)
+        if m:
+            out.append((int(m.group(1)), m.group(2).strip(), m.group(3) or ""))
+    return out
+
+
+def book_pick(region: str, lines) -> list[int]:
+    """按区块选编号：看元素清单里的链接地址（夹具页面的结构是固定的）。"""
+    if "相关" in region:
+        return [no for no, _, rest in lines if "search.html?q=" in rest]
+    if "餐厅" in region:
+        return [no for no, _, rest in lines if "biz.html" in rest]
+    if "下一页" in region:
+        return []
+    return [no for no, _, rest in lines if "result.html" in rest]
+
+
+def book_fields(names: list[str], lines: list[str]) -> dict:
+    """读详情字段：店名取第一行，其它字段取以「字段：」开头的文本行。"""
+    out = {}
+    for n in names:
+        if n in ("店名", "名称", "标题"):
+            out[n] = lines[0].split(" ")[0] if lines else None
+        else:
+            out[n] = next((l.split(" ")[0] for l in lines if re.match(rf"^T\d+ {re.escape(n)}[:：]", l)), None)
+    return out
+
+
+class BookStub:
+    """任务书替身 4b。bad_no：每次抽列表时额外给一个不存在的编号（验收"被拒并记录"）。"""
+
+    def __init__(self, pick=book_pick, fields=book_fields, bad_no: int | None = None):
+        self.pick, self.fields, self.bad_no = pick, fields, bad_no
+        self.calls: list[str] = []
 
     def __call__(self, system, user, images, schema):
-        if "【关联展开判定】" in user:
-            w = self._word(user)
-            self.judged.append(w)
-            ops = self.judge.get(w, [{"op": "terminal", "reason": "替身：无新连接"}])
-            return json.dumps({"ops": ops}, ensure_ascii=False)
-        if "regions" in json.dumps(schema or {}, ensure_ascii=False) and "【任务】" not in user:
-            return DESC_OK
-        w = self._word(user)
-        if w in self.extracted:
-            return say("complete", summary=f"{w} 已收集候选")
-        self.extracted.add(w)
-        items = [{"field": "候选", "value": v} for v in self.candidates.get(w, [w])]
-        items += [{"field": f, "value": v} for f, v in self.fields.get(w, [])]
-        return say("extract", items=items)
+        if "numbers" in json.dumps(schema or {}):
+            self.calls.append("pick_list")
+            region = re.search(r"哪些编号是「(.+?)」里的条目", user).group(1)
+            nos = list(self.pick(region, element_lines(user)))
+            if self.bad_no is not None:
+                nos.append(self.bad_no)
+            return json.dumps({"numbers": nos})
+        if "fields" in json.dumps(schema or {}):
+            self.calls.append("pick_fields")
+            names = re.search(r"字段：(.+)", user).group(1).strip().split("、")
+            lines = [l for l in user.splitlines() if re.match(r"^T\d+ ", l)]
+            got = self.fields(names, lines)
+            return json.dumps({"fields": [{"name": n, "no": got.get(n)} for n in names]}, ensure_ascii=False)
+        self.calls.append("other")
+        return DESC_OK
 
 
-def expand_client(script: ExpandScript) -> FuncClient:
-    return FuncClient(script)
+def book_client(stub: BookStub | None = None) -> FuncClient:
+    return FuncClient(stub or BookStub())
+
+
+def search_order(tree) -> list[str]:
+    out = []
+    for e in tree.events:
+        if e.op == "search":
+            k = tree.key_of(e.node)
+            out.append(f"{k}/{tree.nodes[e.node].word}" if k else tree.nodes[e.node].word)
+    return out

@@ -1,27 +1,24 @@
-# 关联展开任务：变形金刚角色（本地仿搜索夹具版，验收 d12 用）
-kind: expand
+# 任务书：变形金刚角色（本地仿搜索夹具版，自动验收 d12 / AC4 用）
+# 夹具 f22_search：左边 10 条搜索结果（标题 + 摘要），右边「相关搜索」；optimus 的相关搜索里混有别名「擎天柱」「Optimus Prime」。
+format: taskbook/1
 name: fixture_transformers
 title: 变形金刚角色（夹具）
-search_url: ${BASE}/f22_search/search.html?q={q}
-query: "{value}"
-start: optimus
+note: 自动验收样例。每个节点：搜索 → 滚动看完 → 抽结果和相关搜索 → 前 10 条里 ≥80% 提到的已知词加为当前词的值 → 相关搜索里的已知词（别名先归一、去掉当前词）加为当前词的值。
+params:
+  - {name: BASE, type: text, default: "http://127.0.0.1:8765", label: 夹具地址}
 groups:
   - optimus: [galvatron, megatron, starscream]
   - megatron: [starscream, shockwave, soundwave]
   - movie: [fallen, decepticon, autobot]
-sources:
-  - 搜索结果的标题和摘要
-  - 右侧「相关搜索」
-conditions:
-  - id: c1
-    text: 第一页搜索结果中至少 {ratio} 的摘要都提到同一个词，就把那个词作为当前词的值（当前词成为新的键）
-    params: {ratio: 0.8}
-  - id: c2
-    text: 候选词本身就是已知的键或值，并且和当前词稳定地一起出现
-budget: 120
-keep_tabs: 30
-read_per_node: 0
-node_steps: 6
+start: optimus
+limits: {budget: 120, keep_tabs: 30, trial_budget: 5}
+flow:
+  - search: {url: "{BASE}/f22_search/search.html?q={q}", query: "{word}"}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 搜索结果的标题和摘要, max: 10, as: 结果}
+  - pick_list: {region: 相关搜索, anchor: [相关搜索, Related searches], max: 12, as: 相关}
+  - ratio: {in: 结果, top: 10, words: 已知词, at_least: 0.8, drop_current: true, as: 高频}
+  - tree: {use: 高频, op: add_to_current}
+  - filter: {in: 相关, alias: {擎天柱: optimus, Optimus Prime: optimus}, drop_current: true, only_known: true, as: 相关已知}
+  - tree: {use: 相关已知, op: add_to_current}
 output: {type: leaves}
-params:
-  - {name: BASE, label: 夹具地址, default: "http://127.0.0.1:8765"}

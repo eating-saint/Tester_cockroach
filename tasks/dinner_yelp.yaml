@@ -1,28 +1,27 @@
-# 关联展开任务：今晚吃什么（Yelp 试跑，checklist E4；不设必须通过）
+# 任务书：今晚吃什么（Yelp 试跑，人工验收 E3 / AC19 只试跑记录，不设必须通过）
 # 【草稿，待用户确认】Yelp 可能触发人机验证：按项目边界一律转人工，不做任何规避。
-kind: expand
+format: taskbook/1
 name: dinner_yelp
 title: 今晚吃什么（Yelp 试跑）
-search_url: https://www.yelp.com/search?find_desc={q}&find_loc=${location}
-query: "cheap {value}"
-start: dinner
+note: 人工验收样例（只试跑）。搜索结果列表本身带价位和评分时，可把 open 换成直接比较；这里按"打开前 3 家读详情"写。
+params:
+  - {name: location, type: text, default: "San Francisco, CA", label: 地点（必填）}
 groups:
   - dinner: [korean bibimbap, sushi, chinese stir fry]
-sources:
-  - 搜索结果列表里的餐厅（店名、价位 $～$$$$、评分、评论数）
-conditions:
-  - id: c1
-    text: 价位为 $ 或 $$ 的餐厅，作为当前品类的值（当前品类成为新的键）
-budget: 20
-keep_tabs: 10
-read_per_node: 1
-node_steps: 8
-output:
-  type: ranked
-  fields: [店名, 价位, 评分]
-  sort: ["price:asc", "rating:desc"]
-  n: ${n}
-  group_by: key
-params:
-  - {name: location, label: 地点（必填）, default: ""}
-  - {name: n, label: 每类留几个, default: 3}
+start: dinner
+limits: {budget: 20, keep_tabs: 10, trial_budget: 5}
+flow:
+  - search: {url: "https://www.yelp.com/search?find_desc={q}", query: "cheap {word}", extra: {find_loc: "{location}"}}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 搜索结果列表里的餐厅名称（不含广告 Sponsored）, max: 6, screens: 4, as: 餐厅}
+  - open:
+      from: 餐厅
+      n: 1
+      count: 3
+      back: true
+      flow:
+        - read_fields: {names: [店名, 价位, 评分], name_field: 店名, as: 详情}
+  - compare: {in: 详情, field: 价位, op: "<=", value: "$$", as: 便宜, unknown_as: 价位未知}
+  - tree: {use: 便宜, op: add_to_current, new_terminal: true}
+  - tree: {use: 价位未知, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["价位:asc", "评分:desc"], n: 3, group_by: key, unknown: last}

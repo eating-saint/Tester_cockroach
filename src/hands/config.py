@@ -43,6 +43,19 @@ class Config:
     guard: dict = field(default_factory=dict)      # 兜底拦截清单增删：add_words / remove_words / add_paths / remove_paths
     desktop: dict = field(default_factory=dict)    # 桌面驱动设置，缺项用 DESKTOP_DEFAULTS
     confirm: dict = field(default_factory=dict)    # 需确认：enabled（None = 桌面开、其他关）、各组词增删
+    remote: dict = field(default_factory=dict)     # 平板远程访问，缺项用 REMOTE_DEFAULTS
+
+
+REMOTE_DEFAULTS = {
+    "port": 8791,             # 远程入口端口（局域网与隧道共用）
+    "idle_close_s": 7200,     # 公网多久没有已配对设备访问就自动关闭
+    "cloudflared": "",        # cloudflared 路径；留空 = 从 PATH 找
+}
+
+
+def remote_settings(cfg: "Config") -> dict:
+    """远程访问设置：默认值合并 config.yaml 里写的值。"""
+    return {**REMOTE_DEFAULTS, **(cfg.remote or {})}
 
 
 DRIVERS = ("cdp", "playwright", "desktop")
@@ -55,12 +68,14 @@ DESKTOP_DEFAULTS = {
     "uia_timeout_s": 5,               # 读一次无障碍树的超时
     "grid": {"cols": 12, "rows": 8, "min_elements": 3},
     "wheel_px_per_notch": 100,        # 一格滚轮大约滚动多少 CSS 像素
-    "idle_resume_s": 0,               # 人停手 N 秒自动恢复；0 = 只能手动恢复
+    "idle_resume_s": 1,               # 人工介入暂停后，人停手 N 秒自动继续；0 = 只能手动恢复
     "resume_grace_s": 2,              # 恢复后宽限期：期内的人工输入不触发暂停
     "thumb_interval_s": 1.0,          # 面板缩略预览间隔
     # 真实鼠标的移动速度：桌面驱动默认走平滑轨迹，慢一点让人看得清（humanize.mouse 没开时也生效）
     "mouse": {"min_duration_ms": 800, "max_duration_ms": 1600},
     "click_pause_ms": 300,            # 鼠标到位后、按下前停一下
+    "type_char_ms": 150,              # 打字时每个字之间停多久（11-16 用户要求放慢 5 倍）
+    "key_pause_ms": 250,              # 按键 / 组合键（回车、Ctrl+L 等）之后停多久
 }
 
 
@@ -149,6 +164,7 @@ def load_config(path: str | os.PathLike | None = "config.yaml", **overrides) -> 
     cfg.guard = dict(cfg.guard or {})
     cfg.desktop = dict(cfg.desktop or {})
     cfg.confirm = dict(cfg.confirm or {})
+    cfg.remote = dict(cfg.remote or {})
     if not cfg.chrome_path:
         cfg.chrome_path = find_chrome()
     return cfg

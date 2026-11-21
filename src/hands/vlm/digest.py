@@ -209,3 +209,21 @@ def body_summary(text: str, words: list[str], limit: int) -> str:
             merged.append([a, b])
     out = "……".join(text[a:b] for a, b in merged)
     return out if len(out) <= limit else _with_prose(text, out, limit)
+
+
+def text_lines(text: str | None, limit: int = 120, width: int = 80) -> list[str]:
+    """正文切成文本行供 4b 按编号（T1…Tn）选：去首尾空白、去空行、按规范化文字去重，每行截到 width 字。"""
+    import unicodedata
+    out, seen = [], set()
+    for raw in (text or "").splitlines():
+        line = raw.strip().strip("　").strip()
+        if not line:
+            continue
+        key = re.sub(r"\s+", "", unicodedata.normalize("NFKC", line)).lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(line[:width])
+        if len(out) >= limit:
+            break
+    return out

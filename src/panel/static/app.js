@@ -229,6 +229,8 @@ function render(st) {
   $("fps").textContent = pv.on ? `${pv.fps} 帧/秒` + (pv.latency_ms_p50 != null ? ` · 延迟 ${pv.latency_ms_p50} ms` : "") : "推流关";
   // 启动按钮
   for (const id of ["bDemo", "bDemoReplay", "bCase", "bTargetMode", "bManual"]) $(id).disabled = busy || b.need_chrome_path;
+  const bk = BOOKS.find((x) => x.name === $("bookSel").value);
+  $("bBookRun").disabled = $("bBookTrial").disabled = busy || b.need_chrome_path || !bk || bk.status !== "ok";
   if (uiMode === "target") $("bTargetMode").disabled = false;
   if (job && job.kind === "manual" && busy) { $("bManual").disabled = false; $("bManual").textContent = "退出手动模式"; }
   else $("bManual").textContent = "进入手动模式";
@@ -241,16 +243,17 @@ function render(st) {
   }
   renderSampleReal(st); renderDemo(st); renderCaseResult(st); renderTarget(st); renderTree(st); renderNet(st); renderSettingsState(st);
   renderPauseConfirm(st);
+  onRemoteState(st);
   $("mode").textContent = uiMode === "target" ? "点选模式" : uiMode === "manual" ? "手动模式" : "";
 }
 const PAUSE_TEXT = { human_input: "检测到你在操作鼠标键盘", user: "你点了暂停", budget: "次数用满，等待决策（到任务树页处理）",
-  handoff: "人工处理中", edit: "正在修改任务树" };
+  decision: "任务书要求交给人，等待决策（到任务树页处理）", handoff: "人工处理中", edit: "正在修改任务树" };
 function renderPauseConfirm(st) {
   const p = st.pause, c = st.confirm, caps = (st.browser && st.browser.capabilities) || {};
   $("pauseBar").classList.toggle("hidden", !p || p.reason === "handoff");
   if (p) {
     $("pauseText").textContent = `${PAUSE_TEXT[p.reason] || p.reason}（${Math.round(p.elapsed_s || 0)} 秒）`;
-    $("bResume").disabled = p.reason === "budget";
+    $("bResume").disabled = p.reason === "budget" || p.reason === "decision";
   }
   $("confirmBar").classList.toggle("hidden", !c);
   if (c) $("confirmText").textContent = c.text || "";
@@ -421,8 +424,10 @@ async function loadRuns() {
   try {
     const r = await api("GET", "/api/runs");
     $("runs").innerHTML = "<tr><th>时间</th><th>标签</th><th>结果</th><th></th></tr>" + r.data.map((x) =>
-      `<tr><td>${esc(x.time)}</td><td>${esc(x.label)}</td><td class="${x.passed === x.total ? "ok" : "bad"}">${x.passed}/${x.total}</td>` +
-      `<td>${x.has_html ? `<a href="#" data-report="${esc(x.dir)}/report.html">打开</a>` : ""}</td></tr>`).join("");
+      `<tr><td>${esc(x.time)}</td><td>${esc(x.label)}</td>` + (x.kind === "book"
+        ? `<td class="${x.state === "done" ? "ok" : "bad"}">${x.trial ? "试跑 · " : ""}叶子 ${x.leaves}</td>`
+        : `<td class="${x.passed === x.total ? "ok" : "bad"}">${x.passed}/${x.total}</td>`) +
+      `<td>${x.has_html ? `<a href="#" data-report="${esc(x.dir)}/${esc(x.report || "report.html")}">打开</a>` : ""}</td></tr>`).join("");
   } catch (e) {}
 }
 function openReport(rel) {
@@ -609,6 +614,97 @@ window.__blocked = (u) => toast("已拦截：" + u, true);   // 窗口原生拦�
 document.addEventListener("dragover", (e) => e.preventDefault());
 document.addEventListener("drop", (e) => { e.preventDefault(); toast("已拦截拖放", true); });
 
+// ---------------- 任务书 ----------------
+let BOOKS = [];
+const BOOK_STATUS = { ok: "", draft: "（草稿，有问题）", needs_rewrite: "（需要用积木改写）" };
+async function loadBooks() {
+  try { BOOKS = (await api("GET", "/api/books")).data; } catch (e) { BOOKS = []; }
+  const keep = $("bookSel").value;
+  $("bookSel").innerHTML = BOOKS.map((x) => `<option value="${esc(x.name)}"${x.status !== "ok" ? " class=\"muted\"" : ""}>` +
+    `${esc(x.title)}（${esc(x.name)}）${BOOK_STATUS[x.status] || ""}</option>`).join("");
+  if (keep && BOOKS.some((x) => x.name === keep)) $("bookSel").value = keep;
+  renderBookParams();
+}
+function renderBookParams() {
+  const bk = BOOKS.find((x) => x.name === $("bookSel").value);
+  $("bookEdit").href = bk ? `/build?name=${encodeURIComponent(bk.name)}` : "/build";
+  $("bookParams").innerHTML = bk ? bk.params.map((p) => `<label>${esc(p.label || p.name)} <input data-bp="${esc(p.name)}" ` +
+    `type="${p.type === "int" || p.type === "float" ? "number" : "text"}" value="${esc(p.default ?? "")}" style="width:9em"></label>`).join(" ") : "";
+  $("bookMsg").textContent = !bk ? "tasks 目录里还没有任务书：点“新建”搭一份" :
+    bk.status === "ok" ? `起始词 ${bk.start}；上限 ${bk.budget} 次，试跑 ${bk.trial_budget} 次` + (bk.uses_4b ? "；需要本机 Ollama" : "") :
+    bk.status === "needs_rewrite" ? "由旧格式转换而来：点“编辑”用积木补全节点流程后才能运行" : `有 ${bk.problems} 处问题：点“编辑”查看`;
+  if (S) render(S);
+}
+async function runBook(trial) {
+  const name = $("bookSel").value;
+  const values = {};
+  document.querySelectorAll("[data-bp]").forEach((i) => { if (i.value !== "") values[i.dataset.bp] = i.value; });
+  const budget = +$("bookBudget").value || null;
+  try {
+    await api("POST", "/api/books/run", { name, values, budget, trial });
+    $("bookMsg").textContent = trial ? "试跑已开始：任务树页可看进度" : "已开始：任务树页可看进度、暂停修改";
+  } catch (e) { $("bookMsg").textContent = e.message; }
+}
+// ---------------- 远程访问（平板） ----------------
+let RM = null, rmBusy = false;
+const fmtTime = (t) => t ? new Date(t * 1000).toLocaleString() : "-";
+async function loadRemote() {
+  try { RM = (await api("GET", "/api/remote")).data; renderRemote(); } catch (e) {}
+}
+function renderRemote() {
+  if (!RM) return;
+  document.querySelectorAll("input[name=rmode]").forEach((r) => { r.checked = r.value === RM.mode; r.disabled = rmBusy; });
+  const hints = [];
+  if (RM.mode !== "off" && RM.firewall_hint) hints.push("第一次开启时 Windows 可能弹出防火墙提示：请在“专用网络”上点允许，否则平板连不上。");
+  if (!RM.cloudflared) hints.push("公网需要 cloudflared：" + esc(RM.install_hint));
+  if (RM.tunnel_down) hints.push(`<span class="bad">公网隧道已断开，原地址已失效。</span> <button id="rmReopen">一键重开</button>（新地址需要重新扫码）`);
+  if (RM.error && !RM.tunnel_down) hints.push(`<span class="bad">${esc(RM.error)}</span>`);
+  if (RM.mode === "lan+public") hints.push(`公网地址在面板退出、手动关闭、或 ${Math.round((RM.idle_close_s || 7200) / 60)} 分钟没有已配对设备访问时自动关闭。`);
+  setHTML("rmHints", hints.map((h) => `<div>${h}</div>`).join(""));
+  const r = $("rmReopen"); if (r) r.onclick = () => setRemoteMode("lan+public");
+  const codes = [];
+  for (const [kind, addr, label] of [["lan", RM.lan, "局域网"], ["public", RM.public, "公网"]]) {
+    if (!addr) continue;
+    const c = RM.codes[kind] || {};
+    codes.push(`<div class="rm-code"><b>${label}</b> <span class="muted small">${esc(addr)}</span><br>` +
+      `<img src="/api/remote/qr.svg?kind=${kind}&t=${Date.now() - (c.expires_in || 0)}" alt="配对二维码" width="180" height="180"><br>` +
+      `<span class="muted small">用平板相机扫码配对 · 二维码 ${Math.max(0, Math.ceil((c.expires_in || 0) / 60))} 分钟内有效、只能用一次</span> ` +
+      `<button data-code="${kind}" class="small">刷新二维码</button> ` +
+      `<button data-copy="${esc(c.link || "")}" class="small" title="扫不了码时：把链接发到平板上打开（同样 5 分钟内有效、只能用一次）">复制配对链接</button></div>`);
+  }
+  setHTML("rmCodes", codes.join(""));
+  document.querySelectorAll("[data-code]").forEach((b) => b.onclick = () =>
+    api("POST", "/api/remote/code", { kind: b.dataset.code }).then((x) => { RM = x.data; htmlCache.rmCodes = null; renderRemote(); }).catch(() => {}));
+  document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); $("rmMsg").textContent = "配对链接已复制"; }
+    catch (e) { $("rmMsg").textContent = b.dataset.copy; }
+  });
+  const devs = RM.devices || [];
+  setHTML("rmDevices", devs.length ? "<tr><th>设备</th><th>类型</th><th>配对时间</th><th>最近访问</th><th></th></tr>" + devs.map((d) =>
+    `<tr><td><input data-rn="${esc(d.id)}" value="${esc(d.name)}" style="width:10em"></td><td>${d.kind === "lan" ? "局域网" : "公网"}</td>` +
+    `<td>${esc(fmtTime(d.created))}</td><td>${esc(fmtTime(d.last_seen))}</td><td><button data-rv="${esc(d.id)}" class="danger">吊销</button></td></tr>`).join("")
+    : `<tr><td class="muted small">还没有已配对的设备</td></tr>`);
+  document.querySelectorAll("[data-rn]").forEach((i) => i.onchange = () => api("POST", "/api/remote/devices/rename", { id: i.dataset.rn, name: i.value }).then(loadRemote).catch(() => {}));
+  document.querySelectorAll("[data-rv]").forEach((b) => b.onclick = () => api("POST", "/api/remote/devices/revoke", { id: b.dataset.rv }).then(loadRemote).catch(() => {}));
+}
+async function setRemoteMode(mode) {
+  rmBusy = true; renderRemote(); $("rmMsg").textContent = mode === "lan+public" ? "正在开启公网隧道（最多 30 秒）…" : "";
+  try { RM = (await api("POST", "/api/remote/mode", { mode })).data; $("rmMsg").textContent = ""; }
+  catch (e) { if (e.body && e.body.state) RM = e.body.state; $("rmMsg").textContent = e.message; }
+  rmBusy = false; htmlCache.rmCodes = null; renderRemote();
+}
+document.querySelectorAll("input[name=rmode]").forEach((r) => r.addEventListener("change", () => setRemoteMode(r.value)));
+let rmSeen = "";
+function onRemoteState(st) {           // 状态推送里的远程摘要变了（配对、吊销、隧道断开）就重新拉
+  const k = JSON.stringify(st.remote || null);
+  if (k !== rmSeen) { rmSeen = k; loadRemote(); }
+}
+setInterval(loadRemote, 10000);
+
+$("bookSel").addEventListener("change", renderBookParams);
+click("bBookRun", () => runBook(false));
+click("bBookTrial", () => runBook(true));
+
 // ---------------- 启动 ----------------
 (async function init() {
   try {
@@ -618,6 +714,8 @@ document.addEventListener("drop", (e) => { e.preventDefault(); toast("已拦截�
     $("caseSel").innerHTML = c.data.map((x) => `<option>${esc(x)}</option>`).join("");
     const pick = c.data.indexOf("t13_reddit_yes.yaml"); if (pick >= 0) $("caseSel").selectedIndex = pick;
   } catch (e) {}
+  loadBooks();
+  window.addEventListener("focus", loadBooks);       // 搭建工具里保存后回到首页：刷新列表
   connect();
   layoutCanvas();
 })();

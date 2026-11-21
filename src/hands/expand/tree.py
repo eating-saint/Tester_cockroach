@@ -8,6 +8,9 @@
 5. 同一个词在不同键下是不同节点，各自搜索、各自判定（每次出现都复查）。
 6. 一个根的子树没有待查节点时，其中的暂定叶子统一转为末端叶子。
 7. 结束：没有待处理的根、没有待查和暂定节点。次数用满（used ≥ budget）由运行器停下等人。
+
+任务书（taskbook）补充：改树由积木按规则执行（apply_rule，来源 rule）；new_terminal 的值展开时直接是末端叶子；
+rev 是整棵树的版本号，任何改动都会增加，供两端同时修改时做冲突检查。
 """
 from __future__ import annotations
 
@@ -15,7 +18,8 @@ import time
 from dataclasses import asdict, dataclass, field
 
 STATES = ("pending", "key", "tentative", "terminal", "deleted")
-JUDGE_OPS = ("add_value", "new_key", "terminal", "delete")
+JUDGE_OPS = ("add_value", "new_key", "terminal", "delete")   # 上一章 4b 判定用，apply() 保留兼容
+RULE_OPS = ("add_to_current", "add_to_key", "terminal", "delete")
 
 
 @dataclass
@@ -24,7 +28,7 @@ class ExNode:
     word: str
     parent: str | None
     state: str = "pending"
-    origin: str = "initial"          # initial / model / user
+    origin: str = "initial"          # initial / model / rule / user
     searches: int = 0
     reasons: list[dict] = field(default_factory=list)
     fields: dict = field(default_factory=dict)
@@ -74,6 +78,8 @@ class ExpandTree:
         self._cur_root: int | None = None
         self._insert_at: int | None = None
         self.finished_by_user = False
+        self.terminal_values: set[tuple[str, str]] = set()   # (键, 值)：展开时直接是末端叶子
+        self.rev = 0
         self._changed("init")
 
     # ---------------- 内部 ----------------
@@ -91,13 +97,19 @@ class ExpandTree:
         self.nodes[n.id] = n
         if parent is not None:
             self.nodes[parent].children.append(n.id)
+            if (self.nodes[parent].word, word) in self.terminal_values:
+                n.state = "terminal"
+                n.reasons.append({"t": time.time(), "actor": "rule", "op": "terminal",
+                                  "reason": "任务书设为末端叶子（new_terminal）"})
         self._event("system" if origin != "user" else "user", "create", n.id, {"word": word, "parent": parent})
         return n
 
     def _event(self, actor: str, op: str, node: str | None, detail: dict | None = None):
         self.events.append(ExEvent(time.time(), actor, op, node, dict(detail or {})))
+        self.rev += 1
 
     def _changed(self, why: str):
+        self.rev += 1
         c = self.counts()
         self.series.append({"t": time.time(), "why": why, **c})
 
@@ -174,9 +186,11 @@ class ExpandTree:
                 self._changed("root_done")
         return None
 
-    def mark_searched(self, nid: str) -> ExNode:
+    def mark_searched(self, nid: str, count: bool = True) -> ExNode:
+        """节点开始处理。count=False 时不在这里记次数（任务书由引擎按积木消耗另行 consume）。"""
         n = self.nodes[nid]
-        self.used += 1
+        if count:
+            self.used += 1
         n.searches += 1
         self._event("system", "search", nid, {"word": n.word, "used": self.used})
         if n.word in self.mapping:
@@ -256,6 +270,61 @@ class ExpandTree:
                     continue
                 self._new_key(n, word, actor, why)
         self._changed("judge")
+        return rejected
+
+    def apply_rule(self, nid: str, op: str, words: list[str], key: str | None = None,
+                   new_terminal: bool = False, why: dict | None = None) -> list[dict]:
+        """按任务书积木改树（来源 rule），返回被拒项 [{word, rejected}]。
+
+        add_to_current：words 成为当前词的值（当前词还不是键时成为新键，排在当前根之后）。
+        add_to_key：words 成为已知键 key 的值。terminal / delete：作用于当前节点（words 只是依据）。
+        new_terminal：新加的值展开时直接是末端叶子，不再搜索。
+        """
+        n = self.nodes[nid]
+        actor = "rule"
+        base = {"t": time.time(), "actor": actor, "op": op, **(why or {})}
+        rejected: list[dict] = []
+        if op not in RULE_OPS:
+            return [{"word": None, "rejected": f"不认识的改树操作 {op}"}]
+        if n.state == "deleted":
+            return [{"word": w, "rejected": "节点已删除"} for w in (words or [None])]
+        if op == "terminal":
+            if n.state in ("tentative", "pending"):
+                n.state = "terminal"
+            n.reasons.append(base)
+            self._event(actor, "terminal", nid, {"step": base.get("step")})
+        elif op == "delete":
+            for x in self._subtree(nid):
+                x.state = "deleted"
+            n.reasons.append(base)
+            self._event(actor, "delete", nid, {"step": base.get("step")})
+        else:
+            target = n.word if op == "add_to_current" else str(key or "").strip()
+            if op == "add_to_key" and target not in self.mapping:
+                return [{"word": w, "rejected": f"「{target}」不是已知的键"} for w in words]
+            for w in words:
+                w = str(w or "").strip()
+                if not w:
+                    continue
+                if w == target:
+                    rejected.append({"word": w, "rejected": "值与键相同"})
+                    continue
+                if w in self.mapping.get(target, []):
+                    rejected.append({"word": w, "rejected": "这个值已经在该键下"})
+                    continue
+                if new_terminal:
+                    self.terminal_values.add((target, w))
+                why_w = {**base, "word": w}
+                if op == "add_to_current" and n.state != "key":
+                    self._new_key(n, w, actor, why_w)
+                    continue
+                self._map_add(target, w, actor)
+                for k in [x for x in self.nodes.values() if x.word == target and x.state == "key"]:
+                    if k.word in self.expanded:
+                        self._new(w, k.id, actor)
+                n.reasons.append(why_w)
+                self._event(actor, "add_value", nid, {"key": target, "word": w})
+        self._changed("rule")
         return rejected
 
     def _new_key(self, n: ExNode, word: str, actor: str, why: dict):
@@ -364,4 +433,5 @@ class ExpandTree:
     def snapshot(self) -> dict:
         return {"nodes": [n.to_dict() for n in self.nodes.values()], "roots": [dict(r) for r in self.roots],
                 "mapping": {k: list(v) for k, v in self.mapping.items()}, "counts": self.counts(),
-                "series": list(self.series), "finished": self.finished, "exhausted": self.exhausted}
+                "series": list(self.series), "finished": self.finished, "exhausted": self.exhausted,
+                "rev": self.rev}

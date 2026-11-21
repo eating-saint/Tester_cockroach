@@ -1,0 +1,32 @@
+# 关联展开任务：今晚吃什么（Bing 真实站点；Yelp 版见 dinner_yelp.yaml）
+# 【草稿，待用户确认】品类、地点、"便宜"的标准、榜单条件、每类留几个，验收（AC21 / checklist E3）前与用户确认。
+kind: expand
+name: dinner
+title: 今晚吃什么（Bing）
+search_url: https://www.bing.com/search?q={q}
+query: "便宜 {key} {value} ${location}"
+start: 晚餐
+groups:
+  - 晚餐: [韩式拌饭, 日本寿司, 中式炒菜]
+sources:
+  - 搜索结果里的餐厅（店名、价位、评分，常见于地图 / 本地商家卡片或点评网站的结果）
+  - 结果里提到的「收藏最多」「人气第一」「消费榜第一」之类的榜单
+conditions:
+  - id: c1
+    text: 价位不高于 ${max_tier} 档（$ 为 1 档，人均约 15 美元以内为 1 档）的餐厅，作为当前品类的值（当前品类成为新的键）
+  - id: c2
+    text: 收藏榜第一或消费榜第一的餐厅或菜一律记下保留
+budget: 30
+keep_tabs: 15
+read_per_node: 1
+node_steps: 8
+output:
+  type: ranked
+  fields: [店名, 价位, 评分]
+  sort: ["price:asc", "rating:desc"]
+  n: ${n}
+  group_by: key
+params:
+  - {name: location, label: 地点, default: ""}
+  - {name: n, label: 每类留几个, default: 3}
+  - {name: max_tier, label: 价位上限（档）, default: 2}

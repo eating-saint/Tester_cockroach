@@ -1,32 +1,27 @@
-# 关联展开任务：今晚吃什么（Bing 真实站点；Yelp 版见 dinner_yelp.yaml）
-# 【草稿，待用户确认】品类、地点、"便宜"的标准、榜单条件、每类留几个，验收（AC21 / checklist E3）前与用户确认。
-kind: expand
+# 任务书：今晚吃什么（Bing 真实站点，人工验收 E3 / AC19 用；Yelp 版见 dinner_yelp.yaml）
+# 【草稿，待用户确认】品类、地点、"便宜"的标准、每类打开几家、每类留几个，验收前与用户确认。
+format: taskbook/1
 name: dinner
 title: 今晚吃什么（Bing）
-search_url: https://www.bing.com/search?q={q}
-query: "便宜 {key} {value} ${location}"
-start: 晚餐
+note: 人工验收样例。每个品类：搜索 → 滚动看完 → 抽结果里的餐厅名 → 依次打开前 3 家读店名、价位、评分 → 价位不高于 $$ 的、价位未知的作为品类的值（直接是末端叶子）→ 按价位升序、评分降序每类取前 3 个。
+params:
+  - {name: location, type: text, default: "", label: 地点}
 groups:
   - 晚餐: [韩式拌饭, 日本寿司, 中式炒菜]
-sources:
-  - 搜索结果里的餐厅（店名、价位、评分，常见于地图 / 本地商家卡片或点评网站的结果）
-  - 结果里提到的「收藏最多」「人气第一」「消费榜第一」之类的榜单
-conditions:
-  - id: c1
-    text: 价位不高于 ${max_tier} 档（$ 为 1 档，人均约 15 美元以内为 1 档）的餐厅，作为当前品类的值（当前品类成为新的键）
-  - id: c2
-    text: 收藏榜第一或消费榜第一的餐厅或菜一律记下保留
-budget: 30
-keep_tabs: 15
-read_per_node: 1
-node_steps: 8
-output:
-  type: ranked
-  fields: [店名, 价位, 评分]
-  sort: ["price:asc", "rating:desc"]
-  n: ${n}
-  group_by: key
-params:
-  - {name: location, label: 地点, default: ""}
-  - {name: n, label: 每类留几个, default: 3}
-  - {name: max_tier, label: 价位上限（档）, default: 2}
+start: 晚餐
+limits: {budget: 30, keep_tabs: 15, trial_budget: 5}
+flow:
+  - search: {url: "https://www.bing.com/search?q={q}", query: "便宜 {word} 餐厅 {location}"}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 搜索结果里的餐厅名称（本地商家卡片或点评网站的餐厅条目）, max: 6, screens: 4, as: 餐厅}
+  - open:
+      from: 餐厅
+      n: 1
+      count: 3
+      back: true
+      flow:
+        - read_fields: {names: [店名, 价位, 评分], name_field: 店名, as: 详情}
+  - compare: {in: 详情, field: 价位, op: "<=", value: "$$", as: 便宜, unknown_as: 价位未知}
+  - tree: {use: 便宜, op: add_to_current, new_terminal: true}
+  - tree: {use: 价位未知, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["价位:asc", "评分:desc"], n: 3, group_by: key, unknown: last}

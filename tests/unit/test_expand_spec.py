@@ -4,15 +4,15 @@ import pytest
 
 from hands.expand.spec import TaskTypeInvalid, load_task_type
 
-ROOT = Path(__file__).resolve().parents[2]
+LEGACY = Path(__file__).resolve().parent / "data" / "legacy"     # 上一章旧格式原件（tasks/ 已改写为任务书）
 
 
 def test_fixture_types_load():
-    t = load_task_type(ROOT / "tasks" / "fixture_transformers.yaml", {"BASE": "http://x"})
+    t = load_task_type(LEGACY / "fixture_transformers.yaml", {"BASE": "http://x"})
     assert t.start == "optimus" and t.groups[0] == ("optimus", ["galvatron", "megatron", "starscream"])
     assert t.search_url == "http://x/f22_search/search.html?q={q}"
     assert "80%" in t.conditions[0].text and t.budget == 120
-    d = load_task_type(ROOT / "tasks" / "fixture_dinner.yaml", {"BASE": "http://x", "n": 3})
+    d = load_task_type(LEGACY / "fixture_dinner.yaml", {"BASE": "http://x", "n": 3})
     assert d.output["type"] == "ranked" and d.output["n"] == 3 and d.query == "便宜 {key} {value} "
     assert "2 档" in d.conditions[0].text
 

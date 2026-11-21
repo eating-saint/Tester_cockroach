@@ -10,12 +10,13 @@
 <body>
 <header>
   <div class="row">
-    <b>关联展开任务</b>
-    <select id="typeSel"></select>
-    <span id="paramBox"></span>
-    <label>次数上限 <input id="budget" type="number" min="1" size="5"></label>
-    <button id="bStart" class="primary">开始</button>
-    <a href="/" class="muted">← 返回面板</a>
+    <b id="title">任务树</b>
+    <select id="bookSel" title="没有任务在跑时：看这份任务书的初始形态，或直接发起"></select>
+    <label>次数上限 <input id="budget" type="number" min="1" style="width:5em" placeholder="默认"></label>
+    <button id="bRun" class="primary">运行</button>
+    <button id="bTrial">试跑</button>
+    <a id="buildLink" href="/build" class="muted">搭建 / 修改任务书</a>
+    <a id="homeLink" href="/" class="muted">← 返回面板</a>
   </div>
   <div class="row status">
     <span id="state" class="tag">未运行</span>
@@ -27,7 +28,7 @@
     <button id="bPause">暂停</button>
     <button id="bResume">恢复</button>
     <button id="bFinish" class="danger">结束并输出</button>
-    <label>再给 <input id="grantN" type="number" min="1" value="20" size="4"> 次 <button id="bGrant">继续</button></label>
+    <span class="grant">再给 <input id="grantN" type="number" min="1" value="20" style="width:4.5em"> 次 <button id="bGrant">继续</button></span>
     <span id="msg" class="muted"></span>
   </div>
   <div id="confirmBar" class="banner hidden">
@@ -38,23 +39,23 @@
 <main>
   <section id="treeBox"><h3>任务树</h3><div id="tree" class="muted">（还没有运行）</div></section>
   <section id="side">
-    <h3>变化曲线</h3>
-    <svg id="chart" viewBox="0 0 320 140" preserveAspectRatio="none"></svg>
-    <div class="legend"><span class="l1">末端叶子</span> <span class="l2">节点</span> <span class="l3">已用次数</span></div>
     <h3>节点详情</h3>
     <div id="detail" class="muted">点树上的节点查看</div>
-    <div class="row">
+    <div id="nodeOps" class="row ops">
       <button id="bDel" disabled>删除</button>
       <button id="bTerm" disabled>改成末端叶子</button>
       <button id="bPend" disabled>改回待查</button>
     </div>
     <h3>加一组</h3>
     <div class="row">
-      <input id="gKey" placeholder="键" size="10">
-      <input id="gVals" placeholder="值，用逗号分隔" size="22">
+      <input id="gKey" placeholder="键" style="width:7em">
+      <input id="gVals" placeholder="值，用逗号分隔" style="flex:1;min-width:10em">
       <button id="bGroup">加入</button>
     </div>
-    <p class="muted small">修改任务树需要先暂停（次数用满时自动停下）。</p>
+    <p class="muted small">修改任务树需要先暂停（次数用满或任务书要求交给人时会自动停下）。电脑和平板同时修改时，后到的会被拒绝，请按提示刷新。</p>
+    <h3>变化曲线</h3>
+    <svg id="chart" viewBox="0 0 320 140" preserveAspectRatio="none"></svg>
+    <div class="legend"><span class="l1">末端叶子</span> <span class="l2">节点</span> <span class="l3">已用次数</span></div>
     <h3>结果</h3>
     <div id="result" class="muted">（任务结束后显示）</div>
   </section>

@@ -1,0 +1,36 @@
+# 任务书：在 DoorDash 的 Ralphs 里挑哈根达斯和鸡肉（真实站点，只能 --driver desktop）
+# 11-17 用户要求：找一个内容密、字多的页面看分辨能力。只挑选、读金额规格，不加购物车、不下单
+# （下单 / 付款由兜底拦截硬拦；加购物车属于需确认）。
+# 每个节点：首页搜索框搜 Ralphs → 打开第 1 家店 → 用店里的搜索框搜商品 → 打开前 3 个商品读字段。
+# 组键 Ralphs 本身也会作为节点跑一遍（交接 F1），它会在店里搜 "Ralphs"，结果挂在 Ralphs 下面。
+# 每个节点约 6 次（搜店 1 + 进店 1 + 店内搜 1 + 打开 3），3 个节点约 18 次，上限 24 留余量（交接 F8）。
+format: taskbook/1
+name: ralphs_doordash
+title: Ralphs 哈根达斯和鸡肉（DoorDash）
+note: 首页搜索 Ralphs → 打开第 1 家店 → 店内搜索当前词 → 滚动看完 → 抽商品名 → 依次打开前 3 个读金额、规格、评分（名字用页面标题）→ 作为这一类的值（末端叶子）→ 每类按金额升序取前 3 个。只挑选，不加购物车、不下单。
+params: []
+groups:
+  - Ralphs: [haagen dazs, chicken]
+start: Ralphs
+limits: {budget: 24, keep_tabs: 10, trial_budget: 8}
+flow:
+  - search: {home: "https://www.doordash.com/", query: "Ralphs"}
+  - pick_list: {region: 搜索结果里每家店的店名, max: 3, screens: 1, as: 店}
+  - open:
+      from: 店
+      n: 1
+      count: 1
+      back: false
+      flow:
+        - search: {home: "https://www.doordash.com/", query: "{word}"}
+        - scroll_all: {mode: bottom_then_top}
+        - pick_list: {region: 店内搜索结果里每个商品的名称, max: 8, screens: 3, as: 商品}
+        - open:
+            from: 商品
+            n: 1
+            count: 3
+            back: true
+            flow:
+              - read_fields: {names: [金额, 规格, 评分], as: 详情}
+  - tree: {use: 详情, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["金额:asc"], n: 3, group_by: key, unknown: last}

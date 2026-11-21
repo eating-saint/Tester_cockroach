@@ -1,32 +1,27 @@
-# 关联展开任务：点餐（本地仿点评夹具版，验收 d17 用）
-kind: expand
+# 任务书：今晚吃什么（本地仿点评夹具版，自动验收 d17 / AC5 用）
+# 夹具 f23_dinner：搜索页按品类列出 5 家餐厅（店名链接、价位、评分），点进去是详情页（店名、价位、评分、菜单）。
+format: taskbook/1
 name: fixture_dinner
 title: 今晚吃什么（夹具）
-search_url: ${BASE}/f23_dinner/search.html?q={q}
-query: "便宜 {key} {value} ${location}"     # 餐厅这一层带上品类：搜出来的页面里有它自己的价位、评分
-start: 晚餐
+note: 自动验收样例。每个品类：搜索 → 抽餐厅列表 → 依次打开前 5 家读店名、价位、评分 → 价位不高于上限的、价位未知的都作为品类的值（直接是末端叶子）→ 按价位升序、评分降序每类取前 n 个。
+params:
+  - {name: BASE, type: text, default: "http://127.0.0.1:8765", label: 夹具地址}
+  - {name: location, type: text, default: "", label: 地点}
 groups:
   - 晚餐: [韩式拌饭, 日本寿司, 中式炒菜]
-sources:
-  - 搜索结果里的餐厅列表（店名、价位、评分）
-  - 右侧榜单（收藏榜第一、消费榜第一）
-conditions:
-  - id: c1
-    text: 搜索结果里价位不高于 ${max_tier} 档（$ 为 1 档）的餐厅，作为当前品类的值（当前品类成为新的键）
-  - id: c2
-    text: 收藏榜第一或消费榜第一的餐厅一律记下保留
-budget: 30
-keep_tabs: 10
-read_per_node: 0
-node_steps: 6
-output:
-  type: ranked
-  fields: [店名, 价位, 评分]
-  sort: ["price:asc", "rating:desc"]
-  n: ${n}
-  group_by: key
-params:
-  - {name: BASE, label: 夹具地址, default: "http://127.0.0.1:8765"}
-  - {name: location, label: 地点, default: ""}
-  - {name: n, label: 每类留几个, default: 2}
-  - {name: max_tier, label: 价位上限（档）, default: 2}
+start: 晚餐
+limits: {budget: 30, keep_tabs: 10, trial_budget: 5}
+flow:
+  - search: {url: "{BASE}/f23_dinner/search.html?q={q}", query: "便宜 {key} {word} {location}"}
+  - pick_list: {region: 餐厅列表里的店名, max: 10, as: 餐厅}
+  - open:
+      from: 餐厅
+      n: 1
+      count: 5
+      back: true
+      flow:
+        - read_fields: {names: [店名, 价位, 评分], name_field: 店名, as: 详情}
+  - compare: {in: 详情, field: 价位, op: "<=", value: "$$", as: 便宜, unknown_as: 价位未知}
+  - tree: {use: 便宜, op: add_to_current, new_terminal: true}
+  - tree: {use: 价位未知, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["价位:asc", "评分:desc"], n: 2, group_by: key, unknown: last}

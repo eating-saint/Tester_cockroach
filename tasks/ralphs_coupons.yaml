@@ -1,0 +1,21 @@
+# 任务书：Ralphs 官网今天的数字优惠券（肉、披萨、速冻）。只能 --driver desktop。
+# 11-20 用户要求：只找、只读，不领券（Clip 要登录，属于账户动作），不点任何按钮；
+# 流程里没有 open，唯一的操作是在优惠券页的 "Search Coupons" 框里输入搜索词回车。
+# 组键 coupons 本身也会作为节点搜一次（交接 F1），得到的是不分品类的通用券，也有用。
+format: taskbook/1
+name: ralphs_coupons
+title: Ralphs 今日优惠券（肉、披萨、速冻）
+note: 打开 Ralphs 数字优惠券页 → 在 Search Coupons 框里搜当前词 → 滚动看完 → 抽每张优惠券的标题 → 作为这一类的值（末端叶子）。只读，不领券。
+params: []
+groups:
+  - coupons: [meat, pizza, frozen]
+start: coupons
+# keep_tabs 0：全程一个标签页（11-20：每节点新开标签页后桌面驱动常读不到网页内容区，待查）
+limits: {budget: 8, keep_tabs: 0, trial_budget: 4}
+flow:
+  - search: {home: "https://www.ralphs.com/savings/cl/coupons/", box: Search Coupons, query: "{word}"}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 每张优惠券卡片的标题（优惠内容和适用商品，如 SAVE $1.00 on 2 ...）, max: 15, screens: 4, as: 券}
+  - filter: {in: 券, stop: [Sign In, Image ], as: 券名}
+  - tree: {use: 券名, op: add_to_current, new_terminal: true}
+output: {type: leaves}

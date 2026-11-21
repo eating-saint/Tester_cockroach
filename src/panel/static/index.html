@@ -29,7 +29,8 @@
     </label>
     <span class="muted">崩溃 <b id="crashes">0</b> 次</span>
     <a href="/compare" target="_blank" title="ver1：比对模型和人看到的页面">人眼比对</a>
-    <a href="/tree" target="_blank" title="关联展开任务：发起、查看与修改任务树">任务树</a>
+    <a href="/tree" target="_blank" title="任务书运行中的任务树：查看、暂停修改、再给 N 次、结束并输出">任务树</a>
+    <a href="/build" target="_blank" title="搭建任务书：选积木、填参数、预览、试跑、保存">搭建任务书</a>
     <span class="spacer"></span>
     <span id="running" class="running"></span>
   </div>
@@ -99,6 +100,32 @@
     </nav>
 
     <div class="tab on" id="tab-run">
+      <fieldset>
+        <legend>任务书</legend>
+        <div class="row">
+          <select id="bookSel" title="tasks 目录里的任务书"></select>
+          <label>次数上限 <input id="bookBudget" type="number" min="1" style="width:5em" placeholder="默认"></label>
+          <button id="bBookRun" class="start">运行</button>
+          <button id="bBookTrial" class="start" title="用小上限实际跑一遍，看每步结果">试跑</button>
+          <a id="bookEdit" href="/build" target="_blank">编辑</a>
+          <a href="/build" target="_blank">新建</a>
+          <a href="/tree" target="_blank">任务树</a>
+        </div>
+        <div id="bookParams" class="row"></div>
+        <div id="bookMsg" class="muted small"></div>
+      </fieldset>
+      <fieldset id="remoteCard">
+        <legend>远程访问（平板）</legend>
+        <div class="row">
+          <label class="seg"><input type="radio" name="rmode" value="off"> 关闭</label>
+          <label class="seg"><input type="radio" name="rmode" value="lan"> 仅局域网</label>
+          <label class="seg"><input type="radio" name="rmode" value="lan+public"> 局域网 + 公网</label>
+          <span id="rmMsg" class="muted small"></span>
+        </div>
+        <div id="rmHints" class="small"></div>
+        <div id="rmCodes" class="rm-codes"></div>
+        <table id="rmDevices" class="grid"></table>
+      </fieldset>
       <fieldset>
         <legend>演示页对比</legend>
         <div class="row">

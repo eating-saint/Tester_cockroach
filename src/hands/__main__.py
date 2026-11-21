@@ -1,7 +1,8 @@
 """python -m hands run <case.yaml...> [--headed] [--config config.yaml]
                       [--humanize | --humanize-only mouse,think,scroll_jitter] [--seed N]
                       [--driver cdp|playwright|desktop] [--decision rule|vlm] [--confirm on|off]
-python -m hands expand <任务类型.yaml> [--param k=v ...] [--budget N] [--driver ...]"""
+python -m hands book <任务书.yaml> [--param k=v ...] [--budget N] [--trial] [--driver ...]
+python -m hands expand …    （book 的别名）"""
 from __future__ import annotations
 
 import argparse
@@ -71,6 +72,7 @@ async def cli_pause_watch(gate, lines: ConsoleLines, grace: float, stop: dict):
     """暂停（人工输入 / 用户）时提示：回车恢复，q 取消。停手自动恢复由暂停门自己处理。"""
     reasons = {"human_input": "检测到人工操作鼠标键盘", "user": "用户暂停"}
     shown = None
+    idle = float(getattr(gate, "idle_resume_s", 0) or EOF_IDLE_S)   # 设置里的"停手几秒继续"（desktop.idle_resume_s）
     while True:
         await asyncio.sleep(0.2)
         p = gate.paused
@@ -79,14 +81,14 @@ async def cli_pause_watch(gate, lines: ConsoleLines, grace: float, stop: dict):
             continue
         if shown is not p:
             if lines.eof:
-                print(f"\n[已暂停] {reasons[p.reason]}。没有可交互的控制台：停手 {EOF_IDLE_S:.0f} 秒后自动恢复", flush=True)
+                print(f"\n[已暂停] {reasons[p.reason]}。停手 {idle:g} 秒后自动继续", flush=True)
             else:
-                print(f"\n[已暂停] {reasons[p.reason]}。回车恢复，输入 q 取消任务", flush=True)
+                print(f"\n[已暂停] {reasons[p.reason]}。停手 {idle:g} 秒后自动继续；回车立即恢复，输入 q 取消任务", flush=True)
             shown = p
         if lines.eof:
             # 后台运行（标准输入已结束）：不能当成"取消"；人停手一会儿就自动恢复
             import time as _t
-            if _t.monotonic() - gate.last_human >= EOF_IDLE_S:
+            if _t.monotonic() - gate.last_human >= idle:
                 gate.resume("idle")
                 gate.arm(grace)
             continue
@@ -181,9 +183,9 @@ def print_tree(tree):
     print(tree.summary_text())
 
 
-async def expand_menu(runner, lines: ConsoleLines, grace: float, stop: dict):
-    """等待决策（次数用满）时的命令行菜单：回车看树、+N 再给 N 次、f 结束并输出。"""
-    gate, tree = runner.gate, runner.tree
+async def decision_menu(runner, lines: ConsoleLines, grace: float, stop: dict):
+    """等待决策（次数用满 / 任务书要求交给人）时的命令行菜单：回车看树、+N 再给 N 次、f 结束并输出。"""
+    tree = runner.tree
     shown = False
     while True:
         await asyncio.sleep(0.2)
@@ -197,56 +199,71 @@ async def expand_menu(runner, lines: ConsoleLines, grace: float, stop: dict):
         if not got:
             continue
         s = (line or "").strip().lower()
-        if line is None or s == "f":
-            tree.finish("user")
-            gate.resume("cli")
-        elif s.startswith("+") and s[1:].isdigit():
-            tree.grant(int(s[1:]))
-            gate.resume("cli")
-            gate.arm(grace)
-        else:
-            print_tree(tree)
-            shown = False
+        try:
+            if line is None or s == "f":
+                runner.edit("finish", source="命令行")
+            elif s.startswith("+") and s[1:].isdigit():
+                runner.edit("grant", n=int(s[1:]), source="命令行", grace=grace)
+            else:
+                print_tree(tree)
+                shown = False
+        except (PermissionError, ValueError) as e:
+            print(e, flush=True)
 
 
-async def expand(args) -> int:
-    from .config import desktop_settings
-    from .driver import caps_of
-    from .expand.run import ExpandRunner
-    from .expand.spec import TaskTypeInvalid, load_task_type
+def load_book_cli(path: str, params: dict):
+    """读任务书并校验，返回 (TaskBook, 错误文字)。旧格式给出改写提示。"""
+    from .taskbook.book import BookError, bind
+    from .taskbook.convert import detect
+    from .taskbook.validate import check_text
+    text = Path(path).read_text(encoding="utf-8")
+    kind = detect(text)
+    if kind == "legacy":
+        return None, ("这是上一章的旧格式（kind: expand），已不能直接运行：请在面板「导入」它自动转换，"
+                      "再用积木补全节点流程（需要用积木改写）。")
+    b, probs = check_text(text, Path(path).stem)
+    if b is None or probs:
+        return None, "任务书有问题，不能运行：\n" + "\n".join(f"  - {p}" for p in probs)
     try:
-        cfg = load_config(args.config, headless=False if args.headed else None, driver=args.driver,
-                          decision=args.decision)
+        return bind(b, params), None
+    except BookError as e:
+        return None, str(e)
+
+
+async def book_cmd(args) -> int:
+    from .config import desktop_settings, vlm_settings
+    from .driver import caps_of
+    from .taskbook.runner import TaskbookRunner, uses_4b
+    try:
+        cfg = load_config(args.config, headless=False if args.headed else None, driver=args.driver)
     except ValueError as e:
         print(e, file=sys.stderr)
-        return 2
-    if cfg.decision != "vlm":
-        print("关联展开任务只能用大模型决策（加 --decision vlm，或在 config.yaml 写 decision: vlm）", file=sys.stderr)
         return 2
     params = {}
     for p in args.param or []:
         k, _, v = p.partition("=")
         params[k.strip()] = v.strip()
     server = None
-    text = Path(args.type).read_text(encoding="utf-8")
-    if "${BASE}" in text:
+    from .taskbook.book import parse
+    try:
+        declared = {p.get("name") for p in parse(Path(args.book).read_text(encoding="utf-8")).params}
+    except Exception:
+        declared = set()
+    if "BASE" in declared and "BASE" not in params:            # 夹具任务书：起本地夹具服务
         sys.path.insert(0, str(PROJECT_ROOT / "fixtures"))
         import server as fixture_server
         server = fixture_server.start(FIXTURE_PORT)
-        params.setdefault("BASE", f"http://127.0.0.1:{FIXTURE_PORT}")
-    try:
-        tt = load_task_type(args.type, params)
-    except TaskTypeInvalid as e:
-        print(f"任务类型定义不对：{e}", file=sys.stderr)
+        params["BASE"] = f"http://127.0.0.1:{FIXTURE_PORT}"
+    book, err = load_book_cli(args.book, params)
+    if err:
+        print(err, file=sys.stderr)
         if server:
             server.stop()
         return 2
-    if args.budget:
-        tt.budget = int(args.budget)
     from .vlm.client import ModelUnavailable, OllamaClient
-    from .config import vlm_settings
     try:
-        await OllamaClient(vlm_settings(cfg)).check()
+        if uses_4b(book.flow):
+            await OllamaClient(vlm_settings(cfg)).check()
         browser = create_browser(cfg)
         await browser.start()
     except (ModelUnavailable, DriverUnavailable) as e:
@@ -254,13 +271,16 @@ async def expand(args) -> int:
         if server:
             server.stop()
         return 2
-    print(f"关联展开：{tt.title}    驱动: {browser.driver}    模型: {vlm_model(cfg)}    次数上限: {tt.budget}")
     lines = ConsoleLines()
     stop = {"v": False}
     grace = float(desktop_settings(cfg)["resume_grace_s"]) if caps_of(browser).os_input else 0.0
-    runner = ExpandRunner(browser, cfg, RunRecorder(cfg.runs_dir, args.label or f"expand-{tt.name}"), tt,
-                          input_fn=lines.input, should_stop=lambda: stop["v"])
-    tasks = [asyncio.ensure_future(expand_menu(runner, lines, grace, stop))]
+    label = args.label or f"book-{book.name}" + ("-trial" if args.trial else "")
+    runner = TaskbookRunner(browser, cfg, RunRecorder(cfg.runs_dir, label), book, input_fn=lines.input,
+                            should_stop=lambda: stop["v"], trial=args.trial, budget=args.budget)
+    print(f"任务书：{book.title or book.name}    驱动: {browser.driver}    "
+          f"{'4b: ' + vlm_model(cfg) if uses_4b(book.flow) else '不用 4b'}    "
+          f"{'试跑' if args.trial else '次数上限'}: {runner.budget}")
+    tasks = [asyncio.ensure_future(decision_menu(runner, lines, grace, stop))]
     if caps_of(browser).os_input:
         tasks.append(asyncio.ensure_future(cli_pause_watch(browser.gate, lines, grace, stop)))
     try:
@@ -272,11 +292,12 @@ async def expand(args) -> int:
         if server:
             server.stop()
     print_tree(runner.tree)
-    print(f"末端叶子 {len(res['leaves'])} 个；结果：{runner.dir / 'result.json'}")
-    for g, rows in (res.get("rank") or {}).get("top", {}).items():
+    print(f"末端叶子 {len(res['leaves'])} 个；结果：{runner.dir / 'result.json'}；报告：{runner.dir / 'report.html'}")
+    for g, rows in ((res.get("ranked") or {}).get("top") or {}).items():
         print(f"【{g or '结果'}】")
         for i, r in enumerate(rows, 1):
-            print(f"  {i}. {r['name']}  价位 {r.get('price_text') or '未知'}  评分 {r.get('rating_text') or '-'}  {r.get('url') or ''}")
+            fields = "  ".join(f"{k} {v or '未知'}" for k, v in r["fields"].items())
+            print(f"  {i}. {r['word']}  {fields}  {r.get('url') or ''}")
     return 0
 
 
@@ -298,17 +319,19 @@ def main():
                    help="决策方式：rule = 规则决策；vlm = 视觉大模型（需本机 Ollama），覆盖 config.yaml 的 decision")
     r.add_argument("--confirm", choices=("on", "off"), default=None,
                    help="需确认（加购、收藏、提交表单等先问）：默认桌面驱动开、其他驱动关")
-    x = sub.add_parser("expand", help="关联展开任务（tasks/*.yaml）")
-    x.add_argument("type", help="任务类型定义文件，如 tasks/dinner.yaml")
-    x.add_argument("--param", action="append", help="参数，如 --param location=Irvine --param n=3")
-    x.add_argument("--budget", type=int, default=None, help="次数上限（覆盖定义里的 budget）")
-    x.add_argument("--headed", action="store_true")
-    x.add_argument("--config", default="config.yaml")
-    x.add_argument("--label", default="")
-    x.add_argument("--driver", choices=DRIVERS, default=None)
-    x.add_argument("--decision", choices=DECISIONS, default=None)
+    for name, help_ in (("book", "运行任务书（tasks/*.yaml，积木拼成的关联展开任务）"),
+                        ("expand", "同 book（上一章的命令名，保留为别名）")):
+        x = sub.add_parser(name, help=help_)
+        x.add_argument("book", help="任务书文件，如 tasks/dinner.yaml")
+        x.add_argument("--param", action="append", help="开放参数，如 --param location=Irvine")
+        x.add_argument("--budget", type=int, default=None, help="次数上限（覆盖任务书里的 budget / 试跑的 trial_budget）")
+        x.add_argument("--trial", action="store_true", help="试跑：用小上限（默认 trial_budget），到上限就结束")
+        x.add_argument("--headed", action="store_true")
+        x.add_argument("--config", default="config.yaml")
+        x.add_argument("--label", default="")
+        x.add_argument("--driver", choices=DRIVERS, default=None)
     args = ap.parse_args()
-    sys.exit(asyncio.run(run(args) if args.cmd == "run" else expand(args)))
+    sys.exit(asyncio.run(run(args) if args.cmd == "run" else book_cmd(args)))
 
 
 if __name__ == "__main__":

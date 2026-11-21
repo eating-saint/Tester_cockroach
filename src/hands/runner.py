@@ -15,6 +15,7 @@ import yaml
 
 from . import captcha
 from .actions import ActionExecutor, ActionResult
+from .checks import MAX_HANDOFFS, HandoffChecker, respect_interval
 from .cdp import BrowserCrashed
 from .confirm import ConfirmPolicy, cli_confirm_fn
 from .decision import TOOL_REGISTRY, DecisionInput, decide_with_retry
@@ -170,8 +171,9 @@ class CaseRunner:
         self.before_action = before_action           # 传给 ActionExecutor
         self.handoff_fn = handoff_fn                 # 人工介入；默认 captcha.handoff（切有界面、等回车）
         self.humanizer_factory = humanizer_factory   # (case_name, attempt) -> Humanizer | None
-        self._handled: set = set()
         self._handoffs: dict[str, list[dict]] = {}
+        self.checker = HandoffChecker(browser, config, self.confirm, self.gate, handoff_fn, input_fn, log,
+                                      grace=self._grace())
         self._stopped = False
         self._current_humanizer = None
         self._repeat = RepeatWatch()                 # 每次 _attempt 开头重置
@@ -198,16 +200,7 @@ class CaseRunner:
 
     # ---------------- 礼貌间隔 ----------------
     async def _respect_interval(self, url: str):
-        host = (urlparse(url).hostname or "").lower()
-        for domain, gap in (self.config.min_interval_s or {}).items():
-            if host == domain or host.endswith("." + domain):
-                last = self._last_visit.get(domain)
-                if last is not None:
-                    wait = gap - (time.monotonic() - last)
-                    if wait > 0:
-                        self.log(f"[interval] {domain}: 距上次访问不足 {gap}s，等待 {wait:.1f}s")
-                        await asyncio.sleep(wait)
-                self._last_visit[domain] = time.monotonic()
+        await respect_interval(self._last_visit, url, self.config.min_interval_s, self.log)
 
     async def _page(self):
         if self.browser.page is None:
@@ -247,7 +240,7 @@ class CaseRunner:
         index = 0
         clicks = 0
         handoffs = 0
-        self._pending_handoff = None                 # 上一步动作要求转人工（如目标是密码框）
+        self.checker.pending = None                  # 上一步动作要求转人工（如目标是密码框）
         try:
             while not tree.finished:
                 # 暂停中（人一碰鼠标键盘 / 面板暂停 / 改树）：等恢复；等待时长不计入用例时限（spec F8）
@@ -273,45 +266,17 @@ class CaseRunner:
                         index -= 1
                         continue
                     raise
-                hit = captcha.detect(state, self.config.captcha_markers)
-                if hit and hit.startswith("iframe:") and captcha.signature(state, hit) in self._handled:
-                    # 同一个验证框已经人工处理过：真实验证框（Turnstile、reCAPTCHA）通过后 iframe 还留在页面上，不重复转人工。
-                    # 网址或正文命中（拦截页本身，如 walmart.com/blocked）还在，说明没通过：照常再转人工，3 次后判失败。
-                    hit = None
-                if not hit and self.confirm.enabled:
-                    login = self.confirm.login_hit(state)       # 登录、密码、短信验证 → 转人工（spec F9）
-                    if login and captcha.signature(state, f"login:{login}") not in self._handled:
-                        hit = f"login:{login}"
-                if not hit and self._pending_handoff:
-                    hit, self._pending_handoff = self._pending_handoff, None
-                if not hit:
-                    dlg = getattr(page, "dialogs", None)
-                    if dlg is not None:
-                        found = await dlg()
-                        if found:                               # 系统对话框（打印、保存）→ 转人工，不去点它（F10）
-                            hit = f"dialog:{found[0].get('title') or found[0].get('hwnd')}"
+                # 验证码 / 登录 / 上一步要求 / 系统对话框 → 转人工（逻辑在 checks.HandoffChecker，与任务书积木共用）
+                hit = await self.checker.detect(state, page)
                 if hit:
                     handoffs += 1
                     self.log(f"[HUMAN_REQUIRED] {case.name}: 检测到 {hit}")
-                    if handoffs > 3:
+                    if handoffs > MAX_HANDOFFS:
                         tree.fail(f"captcha not resolved: {hit}")
                         break
-                    h_start = time.time()
-                    self.gate.pause("handoff", {"hit": hit})     # 人工处理期间的鼠标键盘不算"抢占"
-                    try:
-                        if self.handoff_fn is None:
-                            page = await captcha.handoff(self.browser, state.url, sdir, self.input_fn, self.log,
-                                                         markers=self.config.captcha_markers)
-                        else:
-                            page = await self.handoff_fn(self.browser, state.url, sdir, self.input_fn, self.log)
-                    finally:
-                        self.gate.resume("handoff")
-                        self.gate.arm(self._grace())
-                    h_end = time.time()
-                    self._handoffs.setdefault(case.name, []).append(
-                        {"start": h_start, "end": h_end, "hit": hit, "url": state.url})
-                    deadline += h_end - h_start      # 等人的时间不算进用例时限（F12：人工处理后继续）
-                    self._handled.add(captcha.signature(state, hit))
+                    page, rec = await self.checker.handle(hit, state, sdir)
+                    self._handoffs.setdefault(case.name, []).append(rec)
+                    deadline += rec["end"] - rec["start"]      # 等人的时间不算进用例时限（F12：人工处理后继续）
                     executor = make_executor(page)
                     index -= 1
                     continue
@@ -379,7 +344,7 @@ class CaseRunner:
                 else:
                     self._repeat.note(result.effective)
                 if isinstance(result.data, dict) and result.data.get("handoff"):
-                    self._pending_handoff = f"login:{result.data['handoff']}"
+                    self.checker.set_pending(f"login:{result.data['handoff']}")
                 if decision.tool in ("click", "open_tab", "right_click") and result.ok:
                     clicks += 1
                 if executor.page is not page:

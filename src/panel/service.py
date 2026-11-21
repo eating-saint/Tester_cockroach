@@ -69,6 +69,9 @@ class PanelService:
         self._tasks.append(asyncio.create_task(self._page_info_loop()))
 
     async def shutdown(self):
+        remote = getattr(self, "remote", None)
+        if remote is not None:                   # 面板退出：远程访问一律关闭（公网地址失效、隧道进程结束）
+            await remote.shutdown()
         for t in self._tasks:
             t.cancel()
         if self.jobs.busy:
@@ -417,7 +420,25 @@ class PanelService:
             "confirm": (self.jobs.current.confirm_pending if self.jobs.current else None),
             "expand": ({"state": self.jobs.expand.state, "counts": self.jobs.expand.tree.counts()}
                        if self.jobs.expand is not None else None),
+            "remote": self.remote.brief() if getattr(self, "remote", None) is not None else None,
+            "alert": self.alert(),
         }
+
+    def alert(self) -> dict | None:
+        """平板提醒用：待确认 / 需要人工 / 次数用完（或任务书要求交给人）。"""
+        j = self.jobs.current
+        if j is None:
+            return None
+        if j.confirm_pending:
+            return {"kind": "confirm", "text": j.confirm_pending.get("text") or "有一个操作需要你确认", "since": time.time()}
+        if j.state == "need_human":
+            return {"kind": "human", "text": "需要人工处理（验证码 / 登录 / 系统对话框）：请到电脑前处理，或取消任务",
+                    "since": (j.need_human or {}).get("since")}
+        p = self.jobs.gate.paused
+        if p is not None and p.reason in ("budget", "decision") and self.jobs.busy:
+            return {"kind": "decision", "text": "次数用完，等待决策：再给 N 次或结束并输出" if p.reason == "budget"
+                    else "任务书要求交给人，等待决策", "since": p.since}
+        return None
 
     def static_info(self) -> dict:
         return {"specs": spec_list(), "about": ABOUT, "data_root": str(DATA_ROOT),

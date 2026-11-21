@@ -572,4 +572,8 @@ CHECKS = [("P01", p01), ("P02", p02), ("P03", p03), ("P04", p04), ("P05", p05), 
           ("P08", p08), ("P09", p09), ("P10", p10), ("P11", p11), ("P12", p12), ("P13", p13), ("P14", p14),
           ("P15", p15), ("P16", p16), ("P17", p17_collect), ("P18", p18), ("P20", p20), ("P21", p21), ("P22", p22), ("P23", p23),
           ("P24", p24_real), ("P25", p25), ("P27", p27), ("P30", p30_real_sample), ("P31", p31)]
+from books_check import BOOK_CHECKS  # noqa: E402
+from remote_check import REMOTE_CHECKS  # noqa: E402
+
+CHECKS += BOOK_CHECKS + REMOTE_CHECKS
 CDP_ONLY = {"P30"}          # 真实网站采集：Playwright 驱动不支持（spec“不做的事”）

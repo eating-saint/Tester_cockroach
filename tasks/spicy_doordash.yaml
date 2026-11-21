@@ -1,0 +1,31 @@
+# 任务书：挑辣菜馆（DoorDash 真实站点，桌面驱动 / 代理窗口）
+# 11-16 晚：无界面 CDP 打开 DoorDash 停在 Cloudflare 验证页；桌面驱动在用户默认 Chrome Profile 里开代理窗口，搜索页能正常打开（地址用 Profile 里已有的）。
+# 只能用 --driver desktop 跑；按边界不做任何规避，遇到验证转人工。
+# 组键本身也会作为一个节点被搜一次（交接 F1），所以键用有意义的搜索词 spicy。
+# 5 个节点各约 4 次（搜索 1 + 打开 3）共 20 次，上限给 26 留余量（交接 F8：用满后"结束"会丢子类的值）。
+# 字段名不带"价 / price"（交接 F3）。
+format: taskbook/1
+name: spicy_doordash
+title: 挑辣菜馆（DoorDash）
+note: 每个菜系：在 DoorDash 搜索 → 滚动看完 → 抽结果里的店名 → 去掉 Sponsored → 依次打开前 3 家读评分、配送费、送达时间（名字用页面标题）→ 评分在 4.5 到 5 之间的作为这一类的值（直接是末端叶子）→ 每类按评分降序、送达时间升序取前 3 个。
+params: []
+groups:
+  - spicy: [hot chicken, malatang, sichuan, spicy ramen]
+start: spicy
+limits: {budget: 26, keep_tabs: 10, trial_budget: 5}
+flow:
+  - search: {home: "https://www.doordash.com/", query: "{word}"}
+  - scroll_all: {mode: bottom_then_top}
+  - pick_list: {region: 搜索结果里每家店的店名, max: 8, screens: 4, as: 候选}
+  - filter: {in: 候选, stop: [Sponsored], as: 店}
+  - open:
+      from: 店
+      n: 1
+      count: 3
+      back: true
+      flow:
+        - read_fields: {names: [评分, 配送费, 送达时间], as: 详情}
+  - compare: {in: 详情, field: 评分, op: ">=", value: "4.5", as: 高分, unknown_as: 评分未知}
+  - compare: {in: 高分, field: 评分, op: "<=", value: "5", as: 入选}
+  - tree: {use: 入选, op: add_to_current, new_terminal: true}
+output: {type: ranked, sort: ["评分:desc", "送达时间:asc"], n: 3, group_by: key, unknown: last}

@@ -92,3 +92,94 @@ def test_new_keys_keep_order():
     assert order == ["晚餐", "晚餐/韩式", "晚餐/寿司", "晚餐/炒菜",
                      "韩式/韩式店A", "韩式/韩式店B", "寿司/寿司店A", "寿司/寿司店B", "炒菜/炒菜店A", "炒菜/炒菜店B"]
     assert len(t.leaves()) == 6 and t.finished
+
+
+# ---------------- 任务书：rev、apply_rule、new_terminal ----------------
+def run_rule(tree, rule=lambda n, t: [], limit=100):
+    """任务书式运行：mark_searched 不计次，每个节点 consume(1)，改树走 apply_rule。"""
+    order = []
+    for _ in range(limit):
+        n = tree.next_node()
+        if n is None:
+            break
+        tree.mark_searched(n.id, count=False)
+        tree.consume(1)
+        key = tree.key_of(n.id)
+        order.append(f"{key}/{n.word}" if key else n.word)
+        for op in rule(n, tree):
+            tree.apply_rule(n.id, **op)
+    return order
+
+
+def test_rev_increases_on_every_change():
+    t = ExpandTree(GROUPS, "optimus")
+    assert t.rev >= 1 and t.snapshot()["rev"] == t.rev
+    seen = [t.rev]
+    n = t.next_node(); t.mark_searched(n.id); seen.append(t.rev)
+    t.consume(1); seen.append(t.rev)
+    t.grant(2); seen.append(t.rev)
+    t.add_group("cybertron", ["iacon"]); seen.append(t.rev)
+    gal = next(x for x in t.nodes.values() if x.word == "galvatron")
+    t.apply_rule(gal.id, "terminal", []); seen.append(t.rev)
+    t.delete(gal.id); seen.append(t.rev)
+    assert all(b > a for a, b in zip(seen, seen[1:]))
+    before = t.rev
+    t.counts(); t.snapshot(); t.leaves(); t.summary_text()
+    assert t.rev == before
+
+
+def test_mark_searched_without_count():
+    t = ExpandTree(GROUPS, "optimus")
+    n = t.next_node(); t.mark_searched(n.id, count=False)
+    assert t.used == 0
+    t.consume(2)
+    assert t.used == 2
+
+
+def test_rule_order_same_as_judge():
+    """add_to_current 与上一章 new_key / add_value 的展开顺序一致。"""
+    t = ExpandTree(GROUPS, "optimus")
+
+    def rule(n, tree):
+        if n.word == "decepticon":
+            return [{"op": "add_to_current", "words": ["megatron"]}]
+        return []
+    order = run_rule(t, rule)
+    assert order[11:] == ["decepticon/megatron", "megatron/starscream", "megatron/shockwave", "megatron/soundwave"]
+    assert t.origin_of[("decepticon", "megatron")] == "rule"
+    assert t.finished and t.used == 15
+
+
+def test_rule_rejects_and_sequence():
+    t = ExpandTree([("k", ["v1", "v2"])], "k")
+    n = t.next_node(); t.mark_searched(n.id, count=False)
+    v1 = t.next_node(); t.mark_searched(v1.id, count=False)
+    assert t.apply_rule(v1.id, "add_to_key", ["x"], key="zzz") == [{"word": "x", "rejected": "「zzz」不是已知的键"}]
+    rej = t.apply_rule(v1.id, "add_to_key", ["v2", "v3"], key="k")
+    assert rej == [{"word": "v2", "rejected": "这个值已经在该键下"}]
+    assert [t.nodes[c].word for c in n.children] == ["v1", "v2", "v3"]
+    # 连续两条 add_to_current：第一条让 v1 成为键，第二条看到它已是键，不重复插入根
+    roots_before = len(t.roots)
+    t.apply_rule(v1.id, "add_to_current", ["a"], why={"step": "flow[5]"})
+    t.apply_rule(v1.id, "add_to_current", ["b", "a"])
+    assert len(t.roots) == roots_before + 1
+    assert t.mapping["v1"] == ["a", "b"]
+    assert v1.state == "key"
+    assert any(r.get("step") == "flow[5]" and r.get("word") == "a" for r in v1.reasons)
+    assert t.apply_rule(v1.id, "rename", []) [0]["rejected"].startswith("不认识")
+
+
+def test_new_terminal_values_are_leaves():
+    t = ExpandTree([("晚餐", ["川菜"])], "晚餐", budget=10)
+
+    def rule(n, tree):
+        if n.word == "川菜":
+            return [{"op": "add_to_current", "words": ["店A", "店B"], "new_terminal": True}]
+        return []
+    order = run_rule(t, rule)
+    assert order == ["晚餐", "晚餐/川菜"]           # 店A、店B 不再搜索
+    leaves = {n.word for n in t.leaves()}
+    assert {"店A", "店B"} <= leaves
+    assert t.used == 2 and t.finished
+    shop = next(n for n in t.nodes.values() if n.word == "店A")
+    assert shop.reasons[0]["actor"] == "rule"

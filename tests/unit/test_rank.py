@@ -16,6 +16,18 @@ def test_parse_price():
     assert parse_rating("评分：4.6") == 4.6 and parse_rating(None) is None
 
 
+def test_parse_price_in_long_text():
+    assert parse_price("Italian · $$ · Open now") == 2
+    assert parse_price("Sushi Bars, Japanese $$$ Closed until 5PM") == 3
+    assert parse_price("川菜 · 人均 ¥85 · 朝阳区") == 1           # 11.8 美元
+    assert parse_price("人均 ¥85 · 川菜") == parse_price("人均 ¥85")
+    assert parse_price("Price range $10–16 per person") == 1
+    assert parse_price("4.5 (1,203 reviews)") is None
+    assert parse_price("Open now · 4.7 stars") is None
+    assert parse_price("均价 60-80 元，环境好") == parse_price("60-80 元")
+    assert parse_price("US$") is None
+
+
 def test_rank_matches_fixture_answer():
     d = json.loads((ROOT / "fixtures" / "f23_dinner" / "data.json").read_text(encoding="utf-8"))
     items = [{"name": r["name"], "price_text": r["price"], "rating_text": str(r["rating"]), "grounded": True,

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="panel-token" content="{{TOKEN}}">
+<title>搭建任务书 - Hands</title>
+<link rel="stylesheet" href="/static/build.css">
+</head>
+<body>
+<header>
+  <div class="row">
+    <b>搭建任务书</b>
+    <label>名称 <input id="fName" placeholder="英文或拼音" style="width:11em"></label>
+    <label class="grow">标题 <input id="fTitle" placeholder="给人看的标题"></label>
+    <span id="status" class="tag">新建</span>
+    <span id="dirty" class="muted small"></span>
+  </div>
+  <div class="row">
+    <select id="openSel" title="打开 tasks 目录里的任务书"></select>
+    <button id="bNew">新建空白</button>
+    <button id="bImport">导入…</button>
+    <button id="bGuide">指导提示词</button>
+    <span class="sep"></span>
+    <button id="bValidate">校验</button>
+    <button id="bPreview">预览</button>
+    <label>试跑 <input id="trialN" type="number" min="1" value="5" style="width:4em"> 次</label>
+    <button id="bTrial" class="primary">试跑</button>
+    <span class="sep"></span>
+    <button id="bSave" class="primary">保存</button>
+    <button id="bSaveAs">另存为…</button>
+    <button id="bText" title="直接编辑 YAML 文本">文本</button>
+    <a id="homeLink" href="/" class="muted">← 返回面板</a>
+  </div>
+  <div id="conflictBar" class="banner warn hidden">
+    <b>已被另一端修改，请刷新。</b>你这边的改动还没保存。
+    <button id="bReload">重新载入（放弃这边的改动）</button>
+    <button id="bConflictSaveAs">另存为新任务书</button>
+  </div>
+  <div id="msg" class="muted small"></div>
+</header>
+
+<main id="formView">
+  <section id="left">
+    <fieldset>
+      <legend>说明</legend>
+      <textarea id="fNote" rows="2" placeholder="这份任务书做什么（可选）"></textarea>
+    </fieldset>
+    <fieldset>
+      <legend>开放参数 <button id="bAddParam" class="mini">＋参数</button></legend>
+      <div id="params"></div>
+      <p class="muted small">发起时可以改的值，在模板里写 {参数名}。</p>
+    </fieldset>
+    <fieldset>
+      <legend>初始组 <button id="bAddGroup" class="mini">＋组</button></legend>
+      <div id="groups"></div>
+      <div class="row"><label>起始词 <select id="fStart"></select></label></div>
+    </fieldset>
+    <fieldset>
+      <legend>上限</legend>
+      <div class="row">
+        <label>次数 <input id="lBudget" type="number" min="1" style="width:5em"></label>
+        <label>保留标签页 <input id="lTabs" type="number" min="0" style="width:4em"></label>
+        <label>试跑次数 <input id="lTrial" type="number" min="1" style="width:4em"></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>输出</legend>
+      <div class="row">
+        <select id="oType"><option value="leaves">末端叶子清单</option><option value="ranked">按字段排序取前 n 个</option></select>
+      </div>
+      <div id="rankedBox" class="row hidden">
+        <label class="grow">排序 <input id="oSort" placeholder="价位:asc, 评分:desc"></label>
+        <label>前 <input id="oN" type="number" min="1" style="width:4em"> 个</label>
+        <label><input id="oGroup" type="checkbox"> 按所在键分组</label>
+        <label>字段未知 <select id="oUnknown"><option value="last">排在已知之后</option><option value="exclude">不参与排序</option></select></label>
+      </div>
+    </fieldset>
+  </section>
+
+  <section id="right">
+    <fieldset>
+      <legend>节点流程（每个节点从上到下执行）</legend>
+      <div id="flow"></div>
+      <div class="row add">
+        <select id="addSel"></select>
+        <button id="bAdd">加到末尾</button>
+        <span id="addWhere" class="muted small"></span>
+      </div>
+    </fieldset>
+    <fieldset id="formBox" class="hidden">
+      <legend id="formTitle">参数</legend>
+      <p id="formHelp" class="muted small"></p>
+      <div id="form"></div>
+    </fieldset>
+  </section>
+</main>
+
+<main id="textView" class="hidden">
+  <textarea id="yaml" spellcheck="false"></textarea>
+  <div class="row"><button id="bTextApply" class="primary">回到表单（按文本更新）</button>
+    <span class="muted small">文本是任务书的原样内容，可以直接改、粘贴 AI 写的任务书。</span></div>
+</main>
+
+<section id="problemsBox">
+  <h3>校验问题 <span id="probCount" class="muted small"></span></h3>
+  <ul id="problems" class="muted"><li>还没有校验</li></ul>
+</section>
+
+<section id="previewBox" class="hidden">
+  <h3>预览（不联网） <button id="bClosePreview" class="mini">收起</button></h3>
+  <div id="previewOut"></div>
+</section>
+
+<section id="trialBox" class="hidden">
+  <h3>试跑 <span id="trialState" class="muted small"></span>
+    <button id="bTrialStop" class="mini danger">停止</button>
+    <a id="trialTree" href="/tree" target="_blank" class="small">任务树</a>
+    <button id="bCloseTrial" class="mini">收起，回到编辑</button></h3>
+  <div id="trialCards"></div>
+</section>
+
+<div id="modal" class="modal hidden">
+  <div class="sheet">
+    <h3 id="mTitle"></h3>
+    <div id="mBody"></div>
+    <div class="row right" id="mButtons"></div>
+  </div>
+</div>
+<input id="fileIn" type="file" accept=".yaml,.yml,.txt" class="hidden">
+<script src="/static/build.js"></script>
+</body>
+</html>

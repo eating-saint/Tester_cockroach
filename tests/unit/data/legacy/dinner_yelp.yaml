@@ -1,0 +1,28 @@
+# 关联展开任务：今晚吃什么（Yelp 试跑，checklist E4；不设必须通过）
+# 【草稿，待用户确认】Yelp 可能触发人机验证：按项目边界一律转人工，不做任何规避。
+kind: expand
+name: dinner_yelp
+title: 今晚吃什么（Yelp 试跑）
+search_url: https://www.yelp.com/search?find_desc={q}&find_loc=${location}
+query: "cheap {value}"
+start: dinner
+groups:
+  - dinner: [korean bibimbap, sushi, chinese stir fry]
+sources:
+  - 搜索结果列表里的餐厅（店名、价位 $～$$$$、评分、评论数）
+conditions:
+  - id: c1
+    text: 价位为 $ 或 $$ 的餐厅，作为当前品类的值（当前品类成为新的键）
+budget: 20
+keep_tabs: 10
+read_per_node: 1
+node_steps: 8
+output:
+  type: ranked
+  fields: [店名, 价位, 评分]
+  sort: ["price:asc", "rating:desc"]
+  n: ${n}
+  group_by: key
+params:
+  - {name: location, label: 地点（必填）, default: ""}
+  - {name: n, label: 每类留几个, default: 3}

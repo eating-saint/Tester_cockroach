@@ -287,20 +287,25 @@ class DesktopPage:
         win32.key(vk, True)
         win32.key(vk, False)
         self._log("key", key=name)
+        await asyncio.sleep(float(self.s.get("key_pause_ms", 0)) / 1000)
 
     async def chord(self, *names: str):
         self._ensure()
         win32.chord(*names)
         self._log("chord", keys=list(names))
+        await asyncio.sleep(float(self.s.get("key_pause_ms", 0)) / 1000)
 
     async def select_all(self):
         await self.chord("Ctrl", "A")
 
     async def insert_text(self, text: str):
         self._ensure()
-        for ch in text:
+        gap = float(self.s.get("type_char_ms", 0)) / 1000
+        for i, ch in enumerate(text):
             self.gate.check()
             win32.text(ch)
+            if gap and i + 1 < len(text):
+                await asyncio.sleep(gap)
         self._log("text", text=text)
 
     async def bring_to_front(self):
@@ -443,7 +448,12 @@ class DesktopPage:
         await asyncio.sleep(0.4)
         new = [t["rid"] for t in self._tabs() if t["rid"] not in before]
         self._tabs_known |= set(new)
-        await self.navigate(url)
+        try:
+            await self.navigate(url)
+        except Exception:
+            if url != "about:blank" or not new:
+                raise
+            self._frame = None             # 空白页读不到网页内容区（Document 控件）：标签页已开，下一步导航会重读
         return new[0] if new else None
 
     async def close_tab(self, rid) -> None:

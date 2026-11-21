@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配对 - Hands</title>
+<style>
+  :root { --pri: #2f6fd6; --bad: #c0392b; --muted: #6b7280; }
+  body { margin: 0; font: 17px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f6f7f9; color: #222; }
+  .box { max-width: 520px; margin: 12vh auto 0; background: #fff; border-radius: 10px; padding: 24px 22px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  h1 { font-size: 22px; margin: 0 0 12px; } .muted { color: var(--muted); font-size: 15px; } .bad { color: var(--bad); }
+  @media (max-width: 560px) { .box { margin: 6vh 12px 0; } }
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Hands 平板远程</h1>
+  <p id="msg">正在配对……</p>
+  <p class="muted">配对只用在电脑面板“远程访问”卡片上显示的二维码。二维码 5 分钟有效、只能用一次。</p>
+</div>
+<script src="/static/pair.js"></script>
+</body>
+</html>

@@ -81,12 +81,17 @@ collect:
 
 # 桌面驱动（driver: desktop；需 pip install -e .[desktop]）：在默认 Chrome Profile 里新开一个代理窗口，
 # 用截图 + 无障碍树看页面、用系统鼠标键盘操作。人一碰鼠标键盘就暂停。不写的项用默认值。
-# desktop:
+desktop:
+  # 速度与人工介入（常调的几项）
+  mouse: {min_duration_ms: 800, max_duration_ms: 1600}   # 鼠标移动一次用时（毫秒），越大越慢
+  click_pause_ms: 300                 # 鼠标到位后、按下前停多久
+  type_char_ms: 150                   # 打字：每个字之间停多久（毫秒），越大越慢
+  key_pause_ms: 250                   # 回车、Ctrl+L 等按键之后停多久
+  idle_resume_s: 1                    # 人工介入（碰了鼠标键盘）暂停后，停手 N 秒自动继续；0 = 只能手动恢复
+  resume_grace_s: 2                   # 恢复后宽限期：这段时间内的鼠标键盘不触发暂停
 #   window: [100, 60, 1280, 860]      # 代理窗口位置与大小（屏幕物理像素）x, y, w, h
 #   stable_ms: 600                    # 截图保持不变多久算页面稳定
 #   settle_timeout_s: 20              # 等待稳定的总超时
-#   idle_resume_s: 0                  # 人停手 N 秒自动恢复；0 = 只能手动恢复（面板“恢复”或命令行回车）
-#   resume_grace_s: 2                 # 恢复后宽限期：这段时间内的鼠标键盘不触发暂停
 #   grid: {cols: 12, rows: 8, min_elements: 3}   # 网格兜底：可用元素少于 min_elements 时叠加网格
 
 # 需确认（加入购物车、收藏、关注、写评价、预订、提交表单等先问“允许一次 / 拒绝”；登录、密码、短信验证转人工）
@@ -95,3 +100,9 @@ collect:
 #   enabled: null
 #   add_words: {account: [], submit: [], login: []}
 #   remove_words: {account: [], submit: [], login: []}
+
+# 平板远程访问（默认关闭，只能在电脑面板首页的"远程访问"卡片里开关）。不写的项用默认值。
+# remote:
+#   port: 8791                        # 远程入口端口（局域网地址与公网隧道共用）
+#   idle_close_s: 7200                # 公网多久没有已配对设备访问就自动关闭（秒）
+#   cloudflared: ""                   # cloudflared.exe 路径；留空 = 从 PATH 找（安装：winget install Cloudflare.cloudflared）
