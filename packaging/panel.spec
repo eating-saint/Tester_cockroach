@@ -24,7 +24,7 @@ a = Analysis(
     pathex=[str(SRC)],
     datas=datas,
     hiddenimports=hidden,
-    excludes=["tkinter", "matplotlib", "numpy", "pytest"],
+    excludes=["tkinter", "matplotlib", "numpy", "pytest", "jedi", "IPython", "parso"],   # jedi/IPython 是开发环境带入的（约 15 MB）
     noarchive=False,
 )
 pyz = PYZ(a.pure)

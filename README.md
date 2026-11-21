@@ -5,6 +5,8 @@
 **ver0**：访问网页的"手脚"层。Python 3.12 + 自写原生 CDP 驱动 Chrome（默认无头），决策由规则决策器完成。
 **ver1**：接入本机视觉大模型（Ollama + qwen3.5:4b）做决策，与规则决策可切换。
 
+**部署前请先读 [`docs/DEPLOY.md`](docs/DEPLOY.md)**：运行环境、体积、数据与隐私、使用边界、使用者责任。
+
 ## 运行
 
 ```bash
@@ -39,7 +41,8 @@ pip install -e .[desktop]                                              # 安装 
 python -m hands run cases/v01_shop_extract.yaml --driver desktop --decision vlm
 ```
 
-- **人一碰鼠标键盘就暂停**：在面板点"恢复"或命令行回车继续（`desktop.idle_resume_s` 可设停手 N 秒自动恢复）。恢复后重新截图观察。
+- **人一碰鼠标键盘就暂停**：停手 `desktop.idle_resume_s` 秒（默认 1 秒）自动继续，被打断的动作重做；也可在面板点"恢复"或命令行回车。
+  鼠标速度、打字速度（`type_char_ms`）、按键停顿（`key_pause_ms`）都在 `config.yaml` 的 `desktop:` 段。
 - **需确认**：加入购物车、收藏、写评价、预订、非搜索表单提交等先问"允许一次 / 拒绝"；登录页、密码框、短信验证码、验证码、打印 / 保存对话框一律暂停转人工；
   **永远不往密码框里输入**；下单、支付仍由兜底拦截硬拦。
 - 无障碍树读不到的区域（如画布）会叠加网格编号让模型选格子；落点查不到元素时这次点击也要确认。
@@ -51,9 +54,13 @@ python -m hands run cases/v01_shop_extract.yaml --driver desktop --decision vlm
 （如"第一页 ≥80% 的结果都提到某个词""收藏榜 / 消费榜第一"）增减节点，直到全部是末端叶子。**搜索 + 阅读满 120 次（可改）就停下等你决定**。
 
 ```bash
-python -m hands expand tasks/fixture_dinner.yaml --driver cdp --decision vlm --param n=2     # 夹具版点餐
-python -m hands expand tasks/fixture_transformers.yaml --driver desktop --decision vlm      # 夹具版变形金刚
+python -m hands book tasks/fixture_dinner.yaml --driver cdp --param n=2      # 夹具版点餐（expand 为旧名，仍可用）
+python -m hands book tasks/ralphs_coupons.yaml --driver desktop              # 真实站点：Ralphs 今日优惠券
+python -m panel                                                              # 面板 /build：用积木搭任务书、校验、试跑
 ```
+
+任务书格式 `taskbook/1`：12 个积木（search、scroll_all、pick_list、open、read_fields、ratio、rank、filter、tree、stop、page、compare）
+拼成每个节点的流程；4b 只回编号，程序逐字取原文。详见 `docs/taskbook/`。
 
 - 任务类型放在 `tasks/*.yaml`（初始键值组、搜索方式、候选来源、关联条件、次数上限、输出方式），由你和 Claude 一起写；运行时的 4b 只增减节点。
 - 面板顶部"任务树"页：发起任务、看树和变化曲线（末端叶子数、节点数、已用次数）、暂停后删除节点 / 改成叶子 / 改回待查 / 加一组 / 再给 N 次 / 结束并输出。
